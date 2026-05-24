@@ -30,8 +30,9 @@ func Clone(url, localPath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		// Clean up the empty directory we may have created so a retry works.
-		_ = os.Remove(localPath)
+		// Clean up the directory we may have created (or partially populated)
+		// so a retry works.
+		_ = os.RemoveAll(localPath)
 		return fmt.Errorf("git clone %s: %w", url, err)
 	}
 	return nil
