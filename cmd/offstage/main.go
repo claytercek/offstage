@@ -6,7 +6,9 @@ import (
 
 	"github.com/gastownhall/offstage/internal/config"
 	"github.com/gastownhall/offstage/internal/manifest"
+	"github.com/gastownhall/offstage/internal/resolver"
 	"github.com/gastownhall/offstage/internal/store"
+	"github.com/gastownhall/offstage/internal/syncer"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +44,9 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(gitCmd)
 	rootCmd.AddCommand(mergeCmd)
+
+	// push flags
+	pushCmd.Flags().Bool("dry-run", false, "Print files that would be pushed without modifying the store")
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +112,44 @@ var pushCmd = &cobra.Command{
 	Use:   "push",
 	Short: "Push local changes to the sync store",
 	Long:  "Copy tracked files from the local filesystem into the sync store and commit. (offstage-393)",
-	RunE:  notImplemented,
+	RunE:  runPush,
+}
+
+func runPush(cmd *cobra.Command, _ []string) error {
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	if err != nil {
+		return fmt.Errorf("get dry-run flag: %w", err)
+	}
+
+	// Load global config to get the store path.
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	// Load manifest from CWD.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+	mf, err := manifest.Load(cwd)
+	if err != nil {
+		return fmt.Errorf("load manifest: %w", err)
+	}
+
+	// Resolve project ID and branch.
+	res, err := resolver.Resolve(cwd)
+	if err != nil {
+		return fmt.Errorf("resolve project: %w", err)
+	}
+
+	// Open the store.
+	s, err := store.Open(cfg.StorePath)
+	if err != nil {
+		return err
+	}
+
+	return syncer.Push(s, cwd, mf.Include, mf.Exclude, res.ProjectID, res.BranchName, dryRun)
 }
 
 var pullCmd = &cobra.Command{
