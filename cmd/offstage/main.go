@@ -45,6 +45,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(gitCmd)
 	rootCmd.AddCommand(mergeCmd)
+	rootCmd.AddCommand(diffCmd)
 
 	// push flags
 	pushCmd.Flags().Bool("dry-run", false, "Print files that would be pushed without modifying the store")
@@ -236,4 +237,65 @@ See ADR-0001 for rationale. (offstage-qim)`,
 
 func notImplemented(cmd *cobra.Command, _ []string) error {
 	return fmt.Errorf("%s: not yet implemented", cmd.Use)
+}
+
+var diffCmd = &cobra.Command{
+	Use:   "diff [<branch>]",
+	Short: "Show diff between local and sync store state",
+	Long: `Show unified diff between the local tracked files and the sync store source state.
+
+With no argument, compares each local tracked file against the version stored in
+the sync store for the current project branch.
+
+With a branch argument, compares the current project branch in the sync store
+against the named branch (useful for reviewing context differences across branches).
+
+Exit code is 0 if no differences, 1 if differences exist (POSIX diff convention).`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runDiff,
+}
+
+func runDiff(cmd *cobra.Command, args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	res, err := resolver.Resolve(cwd)
+	if err != nil {
+		return fmt.Errorf("resolve project: %w", err)
+	}
+
+	s, err := store.Open(cfg.StorePath)
+	if err != nil {
+		return err
+	}
+
+	if len(args) == 1 {
+		currentStoreBranch := res.ProjectID + "/" + res.BranchName
+		targetStoreBranch := res.ProjectID + "/" + args[0]
+		err = syncer.DiffBranches(s, currentStoreBranch, targetStoreBranch)
+	} else {
+		mf, loadErr := manifest.Load(cwd)
+		if loadErr != nil {
+			return fmt.Errorf("load manifest: %w", loadErr)
+		}
+		storeBranch := res.ProjectID + "/" + res.BranchName
+		err = syncer.DiffLocal(s, cwd, mf.Include, mf.Exclude, storeBranch)
+	}
+
+	if errors.Is(err, syncer.ErrHasDiff) {
+		// git diff already printed the diff; just set exit code 1 silently.
+		os.Exit(1)
+	}
+	if err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), err)
+		os.Exit(1)
+	}
+	return nil
 }
