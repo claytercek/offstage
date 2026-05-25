@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gastownhall/offstage/internal/config"
+	"github.com/gastownhall/offstage/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -88,7 +90,19 @@ var gitCmd = &cobra.Command{
 	Short:              "Run a git command inside the sync store",
 	Long:               "Pass arbitrary git commands through to the sync store repository. (offstage-393)",
 	DisableFlagParsing: true,
-	RunE:               notImplemented,
+	RunE:               runGit,
+}
+
+func runGit(_ *cobra.Command, args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	s, err := store.Open(cfg.StorePath)
+	if err != nil {
+		return err
+	}
+	return s.Exec(args...)
 }
 
 var mergeCmd = &cobra.Command{
