@@ -315,7 +315,42 @@ var mergeCmd = &cobra.Command{
 Required after a PR lands if the branch context should flow to the target branch.
 See ADR-0001 for rationale. (offstage-qim)`,
 	Args: cobra.ExactArgs(1),
-	RunE: notImplemented,
+	RunE: runMerge,
+}
+
+func runMerge(_ *cobra.Command, args []string) error {
+	sourceBranch := args[0]
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	res, err := resolver.Resolve(cwd)
+	if err != nil {
+		return fmt.Errorf("resolve project: %w", err)
+	}
+
+	s, err := store.Open(cfg.StorePath)
+	if err != nil {
+		return err
+	}
+
+	if err := syncer.Merge(s, res.ProjectID, res.BranchName, sourceBranch); err != nil {
+		if errors.Is(err, syncer.ErrMergeConflict) {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		return err
+	}
+
+	fmt.Printf("Merged %s into %s and pushed.\n", sourceBranch, res.BranchName)
+	return nil
 }
 
 func notImplemented(cmd *cobra.Command, _ []string) error {
