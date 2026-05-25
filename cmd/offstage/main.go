@@ -49,6 +49,7 @@ func init() {
 
 	// push flags
 	pushCmd.Flags().Bool("dry-run", false, "Print files that would be pushed without modifying the store")
+	pushCmd.Flags().Bool("global", false, "Push globally tracked files instead of project files")
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,10 @@ func runPush(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("get dry-run flag: %w", err)
 	}
+	globalFlag, err := cmd.Flags().GetBool("global")
+	if err != nil {
+		return fmt.Errorf("get global flag: %w", err)
+	}
 
 	// Load global config to get the store path.
 	cfg, err := config.Load()
@@ -129,23 +134,49 @@ func runPush(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Load manifest from CWD.
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
+
+	// Use global mode if --global flag is set, or if we're not in a git repo.
+	useGlobal := globalFlag
+	if !useGlobal {
+		if _, err := resolver.Resolve(cwd); err != nil {
+			useGlobal = true
+		}
+	}
+
+	if useGlobal {
+		s, err := store.Open(cfg.StorePath)
+		if err != nil {
+			return err
+		}
+		includes := cfg.Global.Include
+		if len(includes) == 0 {
+			includes = config.DefaultGlobalPatterns()
+		}
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("get home dir: %w", err)
+		}
+		if cfg.Global.HomeDir != "" {
+			homeDir = cfg.Global.HomeDir
+		}
+		return syncer.PushGlobal(s, homeDir, includes, dryRun)
+	}
+
+	// Project push path.
 	mf, err := manifest.Load(cwd)
 	if err != nil {
 		return fmt.Errorf("load manifest: %w", err)
 	}
 
-	// Resolve project ID and branch.
 	res, err := resolver.Resolve(cwd)
 	if err != nil {
 		return fmt.Errorf("resolve project: %w", err)
 	}
 
-	// Open the store.
 	s, err := store.Open(cfg.StorePath)
 	if err != nil {
 		return err
@@ -155,6 +186,7 @@ func runPush(cmd *cobra.Command, _ []string) error {
 }
 
 var pullDryRun bool
+var pullGlobal bool
 
 var pullCmd = &cobra.Command{
 	Use:   "pull",
@@ -165,6 +197,7 @@ var pullCmd = &cobra.Command{
 
 func init() {
 	pullCmd.Flags().BoolVar(&pullDryRun, "dry-run", false, "Print files that would be pulled without writing them")
+	pullCmd.Flags().BoolVar(&pullGlobal, "global", false, "Pull globally tracked files instead of project files")
 }
 
 func runPull(cmd *cobra.Command, _ []string) error {
@@ -176,6 +209,36 @@ func runPull(cmd *cobra.Command, _ []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	// Use global mode if --global flag is set, or if we're not in a git repo.
+	useGlobal := pullGlobal
+	if !useGlobal {
+		if _, err := resolver.Resolve(cwd); err != nil {
+			useGlobal = true
+		}
+	}
+
+	if useGlobal {
+		s, err := store.Open(cfg.StorePath)
+		if err != nil {
+			return err
+		}
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("get home dir: %w", err)
+		}
+		if cfg.Global.HomeDir != "" {
+			homeDir = cfg.Global.HomeDir
+		}
+		if err := syncer.PullGlobal(s, homeDir, pullDryRun); err != nil {
+			if errors.Is(err, syncer.ErrBranchNotFound) || errors.Is(err, syncer.ErrDiverged) {
+				fmt.Fprintln(cmd.ErrOrStderr(), err)
+				os.Exit(1)
+			}
+			return err
+		}
+		return nil
 	}
 
 	res, err := resolver.Resolve(cwd)
