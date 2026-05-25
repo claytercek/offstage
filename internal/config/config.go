@@ -11,12 +11,31 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// GlobalConfig holds configuration for globally-tracked home-directory files.
+type GlobalConfig struct {
+	// Include lists glob patterns of globally-tracked files (relative to $HOME).
+	Include []string `toml:"include"`
+	// HomeDir overrides $HOME for global file paths (mainly for testing).
+	HomeDir string `toml:"home_dir,omitempty"`
+}
+
 // Config holds the global offstage configuration.
 type Config struct {
 	// StoreURL is the git URL of the sync store repository.
 	StoreURL string `toml:"store_url"`
 	// StorePath is the local path where the sync store is cloned.
 	StorePath string `toml:"store_path"`
+	// Global holds configuration for globally-tracked home-directory files.
+	Global GlobalConfig `toml:"global"`
+}
+
+// DefaultGlobalPatterns returns the default list of glob patterns for
+// globally-tracked files, relative to $HOME.
+func DefaultGlobalPatterns() []string {
+	return []string{
+		".claude/CLAUDE.md",
+		".config/offstage/config.toml",
+	}
 }
 
 // Dir returns the configuration directory (~/.config/offstage).
