@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -152,11 +153,48 @@ func runPush(cmd *cobra.Command, _ []string) error {
 	return syncer.Push(s, cwd, mf.Include, mf.Exclude, res.ProjectID, res.BranchName, dryRun)
 }
 
+var pullDryRun bool
+
 var pullCmd = &cobra.Command{
 	Use:   "pull",
 	Short: "Pull changes from the sync store to the local filesystem",
-	Long:  "Fetch and apply tracked files from the sync store to the local filesystem. (offstage-393)",
-	RunE:  notImplemented,
+	Long:  "Fetch and apply tracked files from the sync store to the local filesystem. (offstage-6qp)",
+	RunE:  runPull,
+}
+
+func init() {
+	pullCmd.Flags().BoolVar(&pullDryRun, "dry-run", false, "Print files that would be pulled without writing them")
+}
+
+func runPull(cmd *cobra.Command, _ []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	res, err := resolver.Resolve(cwd)
+	if err != nil {
+		return fmt.Errorf("resolve project: %w", err)
+	}
+
+	s, err := store.Open(cfg.StorePath)
+	if err != nil {
+		return err
+	}
+
+	if err := syncer.Pull(s, cwd, res.ProjectID, res.BranchName, pullDryRun); err != nil {
+		if errors.Is(err, syncer.ErrBranchNotFound) || errors.Is(err, syncer.ErrDiverged) {
+			fmt.Fprintln(cmd.ErrOrStderr(), err)
+			os.Exit(1)
+		}
+		return err
+	}
+	return nil
 }
 
 var statusCmd = &cobra.Command{
