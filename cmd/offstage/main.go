@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gastownhall/offstage/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +52,26 @@ var trackCmd = &cobra.Command{
 	Short: "Track a file or glob pattern in the current project",
 	Long:  "Add a file or glob pattern to the sync config for this project. (offstage-1v1)",
 	Args:  cobra.MinimumNArgs(1),
-	RunE:  notImplemented,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get working directory: %w", err)
+		}
+		cfg, err := manifest.Load(cwd)
+		if err != nil {
+			return fmt.Errorf("load manifest: %w", err)
+		}
+		pattern := args[0]
+		if !manifest.AddPattern(cfg, pattern) {
+			fmt.Fprintf(cmd.OutOrStdout(), "already tracking %q\n", pattern)
+			return nil
+		}
+		if err := manifest.Write(cwd, cfg); err != nil {
+			return fmt.Errorf("write manifest: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "tracking %q\n", pattern)
+		return nil
+	},
 }
 
 var untrackCmd = &cobra.Command{
@@ -59,7 +79,26 @@ var untrackCmd = &cobra.Command{
 	Short: "Stop tracking a file or glob pattern",
 	Long:  "Remove a file or glob pattern from the sync config for this project. (offstage-1v1)",
 	Args:  cobra.MinimumNArgs(1),
-	RunE:  notImplemented,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get working directory: %w", err)
+		}
+		cfg, err := manifest.Load(cwd)
+		if err != nil {
+			return fmt.Errorf("load manifest: %w", err)
+		}
+		pattern := args[0]
+		if !manifest.RemovePattern(cfg, pattern) {
+			fmt.Fprintf(cmd.OutOrStdout(), "%q is not tracked\n", pattern)
+			return nil
+		}
+		if err := manifest.Write(cwd, cfg); err != nil {
+			return fmt.Errorf("write manifest: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "no longer tracking %q\n", pattern)
+		return nil
+	},
 }
 
 var pushCmd = &cobra.Command{
