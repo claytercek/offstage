@@ -114,7 +114,7 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 
 // removeStaleStoreFiles walks the store working tree and deletes any file whose
 // relative path is not present in the tracked set. The .git directory is
-// always skipped. Empty directories left behind by deletions are also removed.
+// always skipped.
 func removeStaleStoreFiles(storePath string, tracked map[string]bool) error {
 	return filepath.WalkDir(storePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
