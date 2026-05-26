@@ -167,7 +167,7 @@ func runPush(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	if err := syncer.Push(env.Store, env.Resolved.RepoRoot, env.Manifest.Include, env.Manifest.Exclude, env.Resolved.ProjectID, env.Resolved.BranchName, dryRun); err != nil {
+	if err := syncer.Push(env.Store, env.Resolved.RepoRoot, manifest.EffectiveInclude(env.Manifest), env.Manifest.Exclude, env.Resolved.ProjectID, env.Resolved.BranchName, dryRun); err != nil {
 		return err
 	}
 	return nil
@@ -211,7 +211,33 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show sync status for the current project",
 	Long:  "Display which tracked files differ between local and the store. (offstage-393)",
-	RunE:  notImplemented,
+	RunE:  runStatus,
+}
+
+func runStatus(cmd *cobra.Command, _ []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	env, err := syncenv.Open(cwd)
+	if err != nil {
+		return err
+	}
+	if err := syncGitExcludeIfEnabled(env.Resolved.RepoRoot, env.Manifest); err != nil {
+		return err
+	}
+
+	storeBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
+	err = syncer.Status(env.Store, env.Resolved.RepoRoot, manifest.EffectiveInclude(env.Manifest), env.Manifest.Exclude, storeBranch)
+	if errors.Is(err, syncer.ErrHasDiff) {
+		os.Exit(1)
+	}
+	if err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), err)
+		os.Exit(1)
+	}
+	return nil
 }
 
 var gitCmd = &cobra.Command{
@@ -238,7 +264,7 @@ var gitExcludeCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("load manifest: %w", err)
 		}
-		result, err := gitexclude.Sync(repoRoot, cfg.Include)
+		result, err := gitexclude.Sync(repoRoot, manifest.EffectiveInclude(cfg))
 		if err != nil {
 			return err
 		}
@@ -357,10 +383,6 @@ func getGitDir() (string, error) {
 	return dir, nil
 }
 
-func notImplemented(cmd *cobra.Command, _ []string) error {
-	return fmt.Errorf("%s: not yet implemented", cmd.Use)
-}
-
 var diffCmd = &cobra.Command{
 	Use:   "diff [<branch>]",
 	Short: "Show diff between local and sync store state",
@@ -397,7 +419,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		err = syncer.DiffBranches(env.Store, currentStoreBranch, targetStoreBranch)
 	} else {
 		storeBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
-		err = syncer.DiffLocal(env.Store, env.Resolved.RepoRoot, env.Manifest.Include, env.Manifest.Exclude, storeBranch)
+		err = syncer.DiffLocal(env.Store, env.Resolved.RepoRoot, manifest.EffectiveInclude(env.Manifest), env.Manifest.Exclude, storeBranch)
 	}
 
 	if errors.Is(err, syncer.ErrHasDiff) {
@@ -415,7 +437,7 @@ func syncGitExcludeIfEnabled(repoRoot string, cfg *manifest.ProjectConfig) error
 	if !cfg.GitExclude.AutoSync {
 		return nil
 	}
-	_, err := gitexclude.Sync(repoRoot, cfg.Include)
+	_, err := gitexclude.Sync(repoRoot, manifest.EffectiveInclude(cfg))
 	return err
 }
 
@@ -423,7 +445,7 @@ func syncGitExcludeIfRequested(cmd *cobra.Command, repoRoot string, cfg *manifes
 	if !requested && !cfg.GitExclude.AutoSync {
 		return nil
 	}
-	result, err := gitexclude.Sync(repoRoot, cfg.Include)
+	result, err := gitexclude.Sync(repoRoot, manifest.EffectiveInclude(cfg))
 	if err != nil {
 		return err
 	}

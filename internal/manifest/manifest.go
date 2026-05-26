@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 )
 
-const filename = ".offstagerc.toml"
+// Filename is the name of the per-project sync config file.
+const Filename = ".offstagerc.toml"
+
+const filename = Filename
 
 // ProjectConfig holds per-project sync configuration stored in .offstagerc.toml.
 type ProjectConfig struct {
@@ -89,13 +93,23 @@ func Write(dir string, cfg *ProjectConfig) (err error) {
 	return nil
 }
 
+// EffectiveInclude returns cfg.Include with the manifest filename always
+// prepended. If the filename is already present, the list is returned as-is.
+func EffectiveInclude(cfg *ProjectConfig) []string {
+	if slices.Contains(cfg.Include, Filename) {
+		return cfg.Include
+	}
+	result := make([]string, 0, len(cfg.Include)+1)
+	result = append(result, Filename)
+	result = append(result, cfg.Include...)
+	return result
+}
+
 // AddPattern adds pattern to cfg.Include if it is not already present.
 // Returns true if the pattern was added, false if it was already present.
 func AddPattern(cfg *ProjectConfig, pattern string) bool {
-	for _, p := range cfg.Include {
-		if p == pattern {
-			return false
-		}
+	if slices.Contains(cfg.Include, pattern) {
+		return false
 	}
 	cfg.Include = append(cfg.Include, pattern)
 	return true

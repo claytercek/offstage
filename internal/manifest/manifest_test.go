@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/claytercek/offstage/internal/manifest"
@@ -55,14 +56,7 @@ func TestTrackAddsPatternAndWritesFile(t *testing.T) {
 		t.Fatalf("Load after write: %v", err)
 	}
 
-	found := false
-	for _, p := range got.Include {
-		if p == "custom/notes/**" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(got.Include, "custom/notes/**") {
 		t.Errorf("pattern not found after round-trip; Include: %v", got.Include)
 	}
 }
@@ -181,6 +175,41 @@ func TestAddPatternIsIdempotent(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected exactly 1 occurrence of CONTEXT.md, got %d; Include: %v", count, cfg.Include)
+	}
+}
+
+// TestEffectiveIncludeAlwaysContainsManifest verifies that EffectiveInclude
+// prepends the manifest filename when it is not already present.
+func TestEffectiveIncludeAlwaysContainsManifest(t *testing.T) {
+	cfg := &manifest.ProjectConfig{
+		Include: []string{"CONTEXT.md", "AGENTS.md"},
+	}
+	effective := manifest.EffectiveInclude(cfg)
+
+	if effective[0] != manifest.Filename {
+		t.Errorf("EffectiveInclude: expected %q at index 0, got %q", manifest.Filename, effective[0])
+	}
+	if !reflect.DeepEqual(effective[1:], cfg.Include) {
+		t.Errorf("EffectiveInclude: expected original patterns after manifest; got %v", effective[1:])
+	}
+}
+
+// TestEffectiveIncludeIdempotent verifies that EffectiveInclude does not
+// duplicate the manifest filename when it is already in the Include list.
+func TestEffectiveIncludeIdempotent(t *testing.T) {
+	cfg := &manifest.ProjectConfig{
+		Include: []string{manifest.Filename, "CONTEXT.md"},
+	}
+	effective := manifest.EffectiveInclude(cfg)
+
+	count := 0
+	for _, p := range effective {
+		if p == manifest.Filename {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("EffectiveInclude: expected 1 occurrence of manifest filename, got %d; patterns: %v", count, effective)
 	}
 }
 
