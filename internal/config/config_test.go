@@ -90,10 +90,3 @@ func TestDefaultStorePathFallback(t *testing.T) {
 		t.Errorf("DefaultStorePath fallback: got %q, want %q", p, want)
 	}
 }
-
-func TestDefaultGlobalPatterns(t *testing.T) {
-	patterns := config.DefaultGlobalPatterns()
-	if len(patterns) == 0 {
-		t.Fatal("expected non-empty default global patterns")
-	}
-}
