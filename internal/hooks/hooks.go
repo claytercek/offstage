@@ -111,11 +111,16 @@ func runPostCheckout(args []string) error {
 		return nil
 	}
 
-	res, err := resolver.Resolve(cwd)
+	branch, err := resolver.ResolveBranchContext(cwd)
 	if err != nil {
 		return nil
 	}
-	if strings.HasPrefix(res.BranchName, "detached/") {
+	if strings.HasPrefix(branch, "detached/") {
+		return nil
+	}
+
+	projectID, err := resolver.ResolveProjectID(cwd)
+	if err != nil {
 		return nil
 	}
 
@@ -131,7 +136,7 @@ func runPostCheckout(args []string) error {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- syncer.Pull(s, cwd, res.ProjectID, res.BranchName, false)
+		done <- syncer.Pull(s, cwd, projectID, branch, false)
 	}()
 
 	select {
@@ -171,7 +176,12 @@ func runPrePush() error {
 		return nil // no manifest, nothing to push
 	}
 
-	res, err := resolver.Resolve(cwd)
+	branch, err := resolver.ResolveBranchContext(cwd)
+	if err != nil {
+		return nil
+	}
+
+	projectID, err := resolver.ResolveProjectID(cwd)
 	if err != nil {
 		return nil
 	}
@@ -188,7 +198,7 @@ func runPrePush() error {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- syncer.Push(s, cwd, mf.Include, mf.Exclude, res.ProjectID, res.BranchName, false)
+		done <- syncer.Push(s, cwd, mf.Include, mf.Exclude, projectID, branch, false)
 	}()
 
 	select {
