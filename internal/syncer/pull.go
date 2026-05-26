@@ -124,8 +124,10 @@ func listStoreFiles(storeDir string) error {
 }
 
 // copyStoreFiles walks storeDir, skipping .git, and copies each file to the
-// corresponding relative path under projectDir. Returns the number of files copied.
+// corresponding relative path under projectDir using FileSet.Copy.
+// Returns the number of files copied.
 func copyStoreFiles(storeDir, projectDir string) (int, error) {
+	var fs FileSet
 	count := 0
 	err := filepath.Walk(storeDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -150,7 +152,7 @@ func copyStoreFiles(storeDir, projectDir string) (int, error) {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("create parent dir for %s: %w", dest, err)
 		}
-		if err := copyFile(path, dest); err != nil {
+		if err := fs.Copy(path, dest); err != nil {
 			return fmt.Errorf("copy %s: %w", rel, err)
 		}
 		count++
@@ -158,4 +160,3 @@ func copyStoreFiles(storeDir, projectDir string) (int, error) {
 	})
 	return count, err
 }
-
