@@ -38,9 +38,13 @@ type Config struct {
 
 // Dir returns the configuration directory (~/.config/offstage).
 func Dir() (string, error) {
-	cfgHome, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve config dir: %w", err)
+	cfgHome := os.Getenv("XDG_CONFIG_HOME")
+	if cfgHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home dir: %w", err)
+		}
+		cfgHome = filepath.Join(home, ".config")
 	}
 	return filepath.Join(cfgHome, "offstage"), nil
 }
