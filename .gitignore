@@ -6,3 +6,16 @@ CONTEXT.md
 .dolt/
 *.db
 .beads-credential-key
+
+# Build outputs
+bin/
+dist/
+offstage
+
+# Test artifacts
+*.test
+coverage.out
+coverage.html
+
+# Go tool cache
+vendor/
