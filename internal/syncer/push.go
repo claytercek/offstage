@@ -34,7 +34,8 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 	}
 
 	// Collect files matching include/exclude patterns.
-	files, err := CollectFiles(projectDir, include, exclude)
+	var fs FileSet
+	files, err := fs.Collect(projectDir, include, exclude)
 	if err != nil {
 		return fmt.Errorf("collect files: %w", err)
 	}
@@ -73,7 +74,7 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 			return fmt.Errorf("create parent dirs for %s: %w", relPath, err)
 		}
 
-		if err := copyFile(src, dst); err != nil {
+		if err := fs.Copy(src, dst); err != nil {
 			return fmt.Errorf("copy %s: %w", relPath, err)
 		}
 	}
@@ -150,61 +151,8 @@ func removeStaleStoreFiles(storePath string, tracked map[string]bool) error {
 
 // CollectFiles walks projectDir and returns relative paths of files matching
 // any include pattern and not matching any exclude pattern.
+// Deprecated: use FileSet.Collect instead.
 func CollectFiles(projectDir string, include []string, exclude []string) ([]string, error) {
-	var result []string
-
-	err := filepath.WalkDir(projectDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(projectDir, path)
-		if err != nil {
-			return err
-		}
-
-		if matchesAny(relPath, include) && !matchesAny(relPath, exclude) {
-			result = append(result, relPath)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// matchesAny returns true if path matches any of the glob patterns.
-// Supports ** for recursive matching.
-func matchesAny(path string, patterns []string) bool {
-	for _, pattern := range patterns {
-		if matchGlob(pattern, path) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchGlob matches a single pattern against path, supporting ** for
-// recursive directory matching.
-func matchGlob(pattern, path string) bool {
-	if !strings.Contains(pattern, "**") {
-		ok, _ := filepath.Match(pattern, path)
-		return ok
-	}
-
-	// Split on "/**" to get prefix and suffix.
-	parts := strings.SplitN(pattern, "/**", 2)
-	prefix := parts[0]
-
-	if prefix == "" {
-		// Pattern is "**" or "/**..." — matches everything.
-		return true
-	}
-
-	// path must start with prefix+"/" or equal prefix.
-	return strings.HasPrefix(path, prefix+"/") || path == prefix
+	var fs FileSet
+	return fs.Collect(projectDir, include, exclude)
 }
