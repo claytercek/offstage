@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/store"
-	"github.com/gastownhall/offstage/internal/syncer"
+	"github.com/claytercek/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/syncer"
 )
 
 // mustRun is a helper that runs a command and fails the test if it errors.

@@ -1,4 +1,4 @@
-module github.com/gastownhall/offstage
+module github.com/claytercek/offstage
 
 go 1.22.4
 

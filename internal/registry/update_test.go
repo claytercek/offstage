@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/store"
 )
 
 // newStore creates a test store backed by a bare remote with an initial commit

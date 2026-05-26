@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/config"
-	"github.com/gastownhall/offstage/internal/hooks"
+	"github.com/claytercek/offstage/internal/config"
+	"github.com/claytercek/offstage/internal/hooks"
 )
 
 func TestRunUnknownHook(t *testing.T) {

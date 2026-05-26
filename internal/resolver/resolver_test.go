@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/resolver"
+	"github.com/claytercek/offstage/internal/resolver"
 )
 
 // initRepo creates a temporary git repository with an optional remote URL and

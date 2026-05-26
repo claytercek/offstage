@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gastownhall/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/store"
 )
 
 // ErrHasDiff signals that differences were found (exit code 1 per POSIX diff convention).

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/manifest"
+	"github.com/claytercek/offstage/internal/manifest"
 )
 
 // TestLoadMissingReturnsDefaults verifies that a missing .offstagerc.toml

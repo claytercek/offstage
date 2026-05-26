@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gastownhall/offstage/internal/config"
-	"github.com/gastownhall/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/config"
+	"github.com/claytercek/offstage/internal/store"
 	"github.com/spf13/cobra"
 )
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/store"
 )
 
 // TestCloneRejectsExistingStore verifies that Clone returns an error when the

@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gastownhall/offstage/internal/config"
-	"github.com/gastownhall/offstage/internal/hooks"
-	"github.com/gastownhall/offstage/internal/manifest"
-	"github.com/gastownhall/offstage/internal/registry"
-	"github.com/gastownhall/offstage/internal/resolver"
-	"github.com/gastownhall/offstage/internal/store"
-	"github.com/gastownhall/offstage/internal/syncer"
+	"github.com/claytercek/offstage/internal/config"
+	"github.com/claytercek/offstage/internal/hooks"
+	"github.com/claytercek/offstage/internal/manifest"
+	"github.com/claytercek/offstage/internal/registry"
+	"github.com/claytercek/offstage/internal/resolver"
+	"github.com/claytercek/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/syncer"
 	"github.com/spf13/cobra"
 )
 

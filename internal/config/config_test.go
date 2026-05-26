@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/config"
+	"github.com/claytercek/offstage/internal/config"
 )
 
 func TestWriteAndLoad(t *testing.T) {

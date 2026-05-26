@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/store"
-	"github.com/gastownhall/offstage/internal/syncer"
+	"github.com/claytercek/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/syncer"
 )
 
 // mustGit runs a git command in dir, failing the test on error.

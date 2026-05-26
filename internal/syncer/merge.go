@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gastownhall/offstage/internal/registry"
-	"github.com/gastownhall/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/registry"
+	"github.com/claytercek/offstage/internal/store"
 )
 
 // ErrMergeConflict is returned when the merge produces conflicts.

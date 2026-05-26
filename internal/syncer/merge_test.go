@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
-	"github.com/gastownhall/offstage/internal/store"
-	"github.com/gastownhall/offstage/internal/syncer"
+	"github.com/claytercek/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/syncer"
 )
 
 // newStoreWithRemote creates a bare remote, clones it to a local store,

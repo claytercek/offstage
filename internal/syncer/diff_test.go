@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gastownhall/offstage/internal/syncer"
+	"github.com/claytercek/offstage/internal/syncer"
 )
 
 // TestDiffLocal_HasDiff verifies that DiffLocal returns ErrHasDiff when

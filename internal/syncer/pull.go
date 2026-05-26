@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gastownhall/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/store"
 )
 
 // ErrBranchNotFound is returned when the store branch for this project doesn't exist yet.

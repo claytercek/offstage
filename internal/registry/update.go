@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/gastownhall/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/store"
 )
 
 // UpdateStore updates manifest.toml on the store's main branch.
