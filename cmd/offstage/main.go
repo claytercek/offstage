@@ -11,7 +11,6 @@ import (
 	"github.com/claytercek/offstage/internal/config"
 	"github.com/claytercek/offstage/internal/hooks"
 	"github.com/claytercek/offstage/internal/manifest"
-	"github.com/claytercek/offstage/internal/registry"
 	"github.com/claytercek/offstage/internal/resolver"
 	"github.com/claytercek/offstage/internal/store"
 	"github.com/claytercek/offstage/internal/syncer"
@@ -159,16 +158,7 @@ func runPush(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err := syncer.Push(s, cwd, mf.Include, mf.Exclude, res.ProjectID, res.BranchName, dryRun); err != nil {
-		return err
-	}
-
-	// Update branch registry on store's main branch.
-	if err := registry.UpdateStore(s, res.ProjectID, res.BranchName); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not update branch registry: %v\n", err)
-		// Non-fatal: don't fail the push
-	}
-	return nil
+	return syncer.Push(s, cwd, mf.Include, mf.Exclude, res.ProjectID, res.BranchName, dryRun)
 }
 
 var pullDryRun bool
@@ -211,15 +201,6 @@ func runPull(cmd *cobra.Command, _ []string) error {
 			os.Exit(1)
 		}
 		return err
-	}
-
-	// Warn about unreconciled branches.
-	unreconciled, err := registry.CheckUnreconciled(s, res.ProjectID, res.BranchName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not check branch registry: %v\n", err)
-	} else if len(unreconciled) > 0 {
-		fmt.Fprintf(os.Stderr, "\n⚠  Unreconciled branches: %s\n", strings.Join(unreconciled, ", "))
-		fmt.Fprintf(os.Stderr, "   Run 'offstage merge <branch>' after these PRs land.\n")
 	}
 	return nil
 }

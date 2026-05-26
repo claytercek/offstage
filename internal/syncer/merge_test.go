@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BurntSushi/toml"
 	"github.com/claytercek/offstage/internal/store"
 	"github.com/claytercek/offstage/internal/syncer"
 )
@@ -112,40 +111,6 @@ func TestMerge_CleanMerge(t *testing.T) {
 	}
 	if !strings.Contains(string(agData), "feature content") {
 		t.Errorf("AGENTS.md missing feature content, got: %q", string(agData))
-	}
-
-	// Verify the registry on the store main branch shows feature as reconciled.
-	mustGit(t, s.Path, "checkout", "main")
-	manifestPath := filepath.Join(s.Path, "manifest.toml")
-	manifestData, err := os.ReadFile(manifestPath)
-	if err != nil {
-		t.Fatalf("read manifest.toml: %v", err)
-	}
-
-	type branchRecord struct {
-		Project    string `toml:"project"`
-		Branch     string `toml:"branch"`
-		Reconciled bool   `toml:"reconciled"`
-	}
-	type manifest struct {
-		Branches []branchRecord `toml:"branches"`
-	}
-	var m manifest
-	if _, err := toml.Decode(string(manifestData), &m); err != nil {
-		t.Fatalf("parse manifest.toml: %v", err)
-	}
-
-	var featureRec *branchRecord
-	for i, rec := range m.Branches {
-		if rec.Project == pid && rec.Branch == "feature" {
-			featureRec = &m.Branches[i]
-			break
-		}
-	}
-	if featureRec == nil {
-		t.Errorf("feature branch not found in manifest; branches: %+v", m.Branches)
-	} else if !featureRec.Reconciled {
-		t.Errorf("expected feature branch to be reconciled, got: %+v", featureRec)
 	}
 }
 
