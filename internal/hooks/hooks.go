@@ -74,6 +74,66 @@ func Uninstall(cfgDir string) error {
 	return nil
 }
 
+// InstallLocal writes hook scripts to .git/hooks/ of the repo at repoGitDir.
+// repoGitDir should be the absolute path to the .git directory.
+func InstallLocal(repoGitDir string) error {
+	dir := filepath.Join(repoGitDir, "hooks")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create .git/hooks dir: %w", err)
+	}
+
+	for _, hookName := range []string{"post-checkout", "pre-push"} {
+		script := fmt.Sprintf("#!/bin/sh\noffstage hooks run %s \"$@\"\n", hookName)
+		p := filepath.Join(dir, hookName)
+
+		existing, err := os.ReadFile(p)
+		if err == nil {
+			if strings.Contains(string(existing), "offstage hooks run") {
+				fmt.Println("hooks already installed")
+				return nil
+			}
+			return fmt.Errorf("hook %q already exists and was not written by offstage; remove it manually first", hookName)
+		}
+
+		if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+			return fmt.Errorf("write %s hook: %w", hookName, err)
+		}
+	}
+
+	fmt.Printf("hooks installed locally in %s\n", dir)
+	return nil
+}
+
+// UninstallLocal removes offstage-written hook scripts from .git/hooks/.
+// Other hook files are left untouched. Global core.hooksPath is not modified.
+func UninstallLocal(repoGitDir string) error {
+	dir := filepath.Join(repoGitDir, "hooks")
+	removed := 0
+
+	for _, hookName := range []string{"post-checkout", "pre-push"} {
+		p := filepath.Join(dir, hookName)
+		content, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if !strings.Contains(string(content), "offstage hooks run") {
+			continue
+		}
+		if err := os.Remove(p); err != nil {
+			return fmt.Errorf("remove %s hook: %w", hookName, err)
+		}
+		removed++
+	}
+
+	if removed == 0 {
+		fmt.Println("nothing to uninstall")
+	} else {
+		fmt.Println("hooks uninstalled")
+	}
+	return nil
+}
+
+
 // Run is the entry point called by hook shell scripts.
 // This is a stub that always exits 0; real logic is added in later slices.
 func Run(hookName string, args []string) error {

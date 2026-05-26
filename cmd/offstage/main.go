@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/gastownhall/offstage/internal/config"
@@ -53,6 +55,10 @@ func init() {
 	hooksCmd.AddCommand(hooksInstallCmd)
 	hooksCmd.AddCommand(hooksUninstallCmd)
 	hooksCmd.AddCommand(hooksRunCmd)
+
+	// hooks flags
+	hooksInstallCmd.Flags().Bool("local", false, "Install hooks locally in the current repo's .git/hooks/")
+	hooksUninstallCmd.Flags().Bool("local", false, "Uninstall hooks locally from the current repo's .git/hooks/")
 
 	// push flags
 	pushCmd.Flags().Bool("dry-run", false, "Print files that would be pushed without modifying the store")
@@ -301,6 +307,17 @@ var hooksInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install offstage git hooks",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		local, err := cmd.Flags().GetBool("local")
+		if err != nil {
+			return fmt.Errorf("get local flag: %w", err)
+		}
+		if local {
+			gd, err := getGitDir()
+			if err != nil {
+				return err
+			}
+			return hooks.InstallLocal(gd)
+		}
 		cfgDir, err := config.Dir()
 		if err != nil {
 			return err
@@ -313,6 +330,17 @@ var hooksUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Uninstall offstage git hooks",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		local, err := cmd.Flags().GetBool("local")
+		if err != nil {
+			return fmt.Errorf("get local flag: %w", err)
+		}
+		if local {
+			gd, err := getGitDir()
+			if err != nil {
+				return err
+			}
+			return hooks.UninstallLocal(gd)
+		}
 		cfgDir, err := config.Dir()
 		if err != nil {
 			return err
@@ -328,6 +356,23 @@ var hooksRunCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return hooks.Run(args[0], args[1:])
 	},
+}
+
+// getGitDir returns the absolute path to the .git directory of the current repo.
+func getGitDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	out, err := exec.Command("git", "rev-parse", "--git-dir").Output()
+	if err != nil {
+		return "", fmt.Errorf("not inside a git repo: %w", err)
+	}
+	dir := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(cwd, dir)
+	}
+	return dir, nil
 }
 
 func notImplemented(cmd *cobra.Command, _ []string) error {
