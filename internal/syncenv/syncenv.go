@@ -1,7 +1,10 @@
-// Package syncenv provides the SyncEnv type, which consolidates the four
+// Package syncenv provides the SyncEnv type, which consolidates the
 // initialization steps common to most offstage commands: loading the global
-// config, loading the per-project manifest, resolving the project identity,
-// and opening the sync store.
+// config, resolving the project identity, opening the sync store, and
+// optionally loading the per-project manifest.
+//
+// Commands declare what they need by passing Option values to Open rather than
+// choosing between fixed entry-point variants.
 package syncenv
 
 import (
@@ -14,6 +17,7 @@ import (
 )
 
 // SyncEnv holds the fully-initialized context needed by sync commands.
+// Fields that were not requested via options are nil.
 type SyncEnv struct {
 	Config   *config.Config
 	Manifest *manifest.ProjectConfig
@@ -21,43 +25,41 @@ type SyncEnv struct {
 	Store    *store.Store
 }
 
-// Open loads the global config, the per-project manifest rooted at the repo,
-// resolves the current project identity, and opens the sync store. All four
-// steps must succeed; the first failure returns an error.
-func Open(cwd string) (*SyncEnv, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := resolver.Resolve(cwd)
-	if err != nil {
-		return nil, fmt.Errorf("resolve project: %w", err)
-	}
-
-	mf, err := manifest.Load(res.RepoRoot)
-	if err != nil {
-		return nil, fmt.Errorf("load manifest: %w", err)
-	}
-
-	s, err := store.Open(cfg.StorePath)
-	if err != nil {
-		return nil, err
-	}
-
-	return &SyncEnv{
-		Config:   cfg,
-		Manifest: mf,
-		Resolved: res,
-		Store:    s,
-	}, nil
+// options holds the set of initialization steps requested by the caller.
+type options struct {
+	manifest bool
 }
 
-// OpenWithoutManifest loads the global config, resolves the current project
-// identity, and opens the sync store, but does not load the per-project
-// manifest. Use this for commands that operate on the store by project/branch
-// identity but do not need the file include/exclude lists.
-func OpenWithoutManifest(cwd string) (*SyncEnv, error) {
+// Option configures which initialization steps Open performs.
+type Option func(*options)
+
+// WithManifest instructs Open to load the per-project manifest
+// (.offstagerc.toml) from the repository root. When not supplied, SyncEnv.Manifest
+// is nil.
+func WithManifest() Option {
+	return func(o *options) {
+		o.manifest = true
+	}
+}
+
+// Open loads the global config, resolves the current project identity, and
+// opens the sync store. Callers may supply additional Option values to declare
+// which optional initialization steps are also required. The first failure
+// returns an error.
+//
+// Example — load everything including the manifest:
+//
+//	env, err := syncenv.Open(cwd, syncenv.WithManifest())
+//
+// Example — skip the manifest (store-only commands):
+//
+//	env, err := syncenv.Open(cwd)
+func Open(cwd string, opts ...Option) (*SyncEnv, error) {
+	o := &options{}
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -73,10 +75,19 @@ func OpenWithoutManifest(cwd string) (*SyncEnv, error) {
 		return nil, err
 	}
 
-	return &SyncEnv{
+	env := &SyncEnv{
 		Config:   cfg,
-		Manifest: nil,
 		Resolved: res,
 		Store:    s,
-	}, nil
+	}
+
+	if o.manifest {
+		mf, err := manifest.Load(res.RepoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("load manifest: %w", err)
+		}
+		env.Manifest = mf
+	}
+
+	return env, nil
 }

@@ -156,7 +156,7 @@ func runPush(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	env, err := syncenv.Open(cwd)
+	env, err := syncenv.Open(cwd, syncenv.WithManifest())
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func runPull(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	env, err := syncenv.OpenWithoutManifest(cwd)
+	env, err := syncenv.Open(cwd)
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	env, err := syncenv.Open(cwd)
+	env, err := syncenv.Open(cwd, syncenv.WithManifest())
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func runMerge(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	env, err := syncenv.OpenWithoutManifest(cwd)
+	env, err := syncenv.Open(cwd)
 	if err != nil {
 		return err
 	}
@@ -400,7 +400,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	env, err := syncenv.Open(cwd)
+	env, err := syncenv.Open(cwd, syncenv.WithManifest())
 	if err != nil {
 		return err
 	}
