@@ -1,0 +1,62 @@
+version: 2
+
+project_name: offstage
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - binary: offstage
+    main: ./cmd/offstage
+    ldflags:
+      - -s -w -X main.version={{.Tag}}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+signs:
+  - cmd: cosign
+    args:
+      - sign-blob
+      - --yes
+      - --output-signature=${signature}
+      - --output-certificate=${certificate}
+      - ${artifact}
+    artifacts: checksum
+    output: true
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  sort: asc
+  use: git
+  groups:
+    - title: Features
+      regexp: "^feat"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^fix"
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^chore"
+      - "^ci"

@@ -93,6 +93,22 @@ offstage merge my-feature-branch
 
 ## Installation
 
+**macOS / Linux**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/claytercek/offstage/main/scripts/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/claytercek/offstage/main/scripts/install.ps1 | iex
+```
+
+**Go**
+
 ```sh
 go install github.com/claytercek/offstage/cmd/offstage@latest
 ```
+
+Or download a pre-built binary directly from the [releases page](https://github.com/claytercek/offstage/releases).

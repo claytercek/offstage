@@ -20,16 +20,18 @@ import (
 	"github.com/claytercek/offstage/internal/syncer"
 )
 
+var version = "dev"
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		// cobra already prints the error; just exit non-zero.
 		os.Exit(1)
 	}
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "offstage",
-	Short: "Sync gitignored personal files across machines",
+	Use:     "offstage",
+	Version: version,
+	Short:   "Sync gitignored personal files across machines",
 	Long: `offstage syncs gitignored personal project files across machines using
 a private git repository as the sync store.
 
