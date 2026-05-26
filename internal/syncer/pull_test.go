@@ -71,7 +71,7 @@ func seedStoreBranch(t *testing.T, s *store.Store, storeBranch string, files map
 		}
 	}
 
-	mustRun(t, "git", "-C", s.Path, "add", "-A")
+	mustRun(t, "git", "-C", s.Path, "add", "--force", "-A")
 	mustRun(t, "git", "-C", s.Path, "commit", "-m", "seed files for pull test")
 
 	// Push the branch to origin.
@@ -107,8 +107,8 @@ func TestPullCleanBranch(t *testing.T) {
 
 	// Seed the store branch with test files.
 	seedStoreBranch(t, s, storeBranch, map[string]string{
-		"CONTEXT.md":        "# Project context",
-		"subdir/AGENTS.md":  "# Agents",
+		"CONTEXT.md":       "# Project context",
+		"subdir/AGENTS.md": "# Agents",
 	})
 
 	// Pull into a fresh project dir.

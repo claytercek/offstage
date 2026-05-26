@@ -76,7 +76,6 @@ func UninstallLocal(repoGitDir string) error {
 	return nil
 }
 
-
 // Run is the entry point called by hook shell scripts. It never returns a
 // non-nil error — any failure is printed as a warning and the hook exits 0.
 func Run(hookName string, args []string) error {
@@ -212,4 +211,3 @@ func runPrePush() error {
 
 	return nil
 }
-

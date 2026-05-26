@@ -1,6 +1,8 @@
 package syncer
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -47,21 +49,31 @@ func (FileSet) Matches(pattern, path string) bool {
 }
 
 // Copy copies the file at src to dst, creating dst if it does not exist.
-func (FileSet) Copy(src, dst string) error {
+func (FileSet) Copy(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() {
+		if closeErr := in.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close source file: %w", closeErr))
+		}
+	}()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closeErr := out.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close destination file: %w", closeErr))
+		}
+	}()
+
 	if _, err := io.Copy(out, in); err != nil {
 		return err
 	}
-	return out.Close()
+	return nil
 }
 
 // matchesAny returns true if path matches any of the glob patterns.

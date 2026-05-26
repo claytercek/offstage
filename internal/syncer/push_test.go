@@ -185,10 +185,10 @@ func TestCollectFiles_BasicPatterns(t *testing.T) {
 	}
 
 	want := map[string]bool{
-		"CONTEXT.md":          true,
-		"AGENTS.md":           true,
-		".agents/rules.md":    true,
-		".agents/sub/deep.md": true,
+		"CONTEXT.md":           true,
+		"AGENTS.md":            true,
+		".agents/rules.md":     true,
+		".agents/sub/deep.md":  true,
 		"docs/adr/0001-foo.md": true,
 	}
 	for _, f := range files {

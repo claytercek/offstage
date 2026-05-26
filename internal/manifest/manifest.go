@@ -41,7 +41,7 @@ func DefaultPatterns() []string {
 // Load reads and parses the .offstagerc.toml in dir. If the file does not
 // exist, a default ProjectConfig is returned without error. If the file
 // exists but cannot be parsed, an error is returned.
-func Load(dir string) (*ProjectConfig, error) {
+func Load(dir string) (cfg *ProjectConfig, err error) {
 	p := filepath.Join(dir, filename)
 	f, err := os.Open(p)
 	if errors.Is(err, os.ErrNotExist) {
@@ -53,17 +53,22 @@ func Load(dir string) (*ProjectConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", filename, err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			cfg = nil
+			err = errors.Join(err, fmt.Errorf("close %s: %w", filename, closeErr))
+		}
+	}()
 
-	var cfg ProjectConfig
-	if _, err := toml.NewDecoder(f).Decode(&cfg); err != nil {
+	var parsed ProjectConfig
+	if _, err := toml.NewDecoder(f).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", filename, err)
 	}
-	return &cfg, nil
+	return &parsed, nil
 }
 
 // Write creates or overwrites the .offstagerc.toml in dir with cfg.
-func Write(dir string, cfg *ProjectConfig) error {
+func Write(dir string, cfg *ProjectConfig) (err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
@@ -72,7 +77,12 @@ func Write(dir string, cfg *ProjectConfig) error {
 	if err != nil {
 		return fmt.Errorf("create %s: %w", filename, err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close %s: %w", filename, closeErr))
+		}
+	}()
+
 	if err := toml.NewEncoder(f).Encode(cfg); err != nil {
 		return fmt.Errorf("write %s: %w", filename, err)
 	}

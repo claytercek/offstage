@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	"github.com/claytercek/offstage/internal/config"
 	"github.com/claytercek/offstage/internal/store"
-	"github.com/spf13/cobra"
 )
 
 var initCmd = &cobra.Command{

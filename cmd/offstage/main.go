@@ -8,13 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/claytercek/offstage/internal/config"
 	"github.com/claytercek/offstage/internal/hooks"
 	"github.com/claytercek/offstage/internal/manifest"
 	"github.com/claytercek/offstage/internal/store"
 	"github.com/claytercek/offstage/internal/syncenv"
 	"github.com/claytercek/offstage/internal/syncer"
-	"github.com/spf13/cobra"
 )
 
 func main() {

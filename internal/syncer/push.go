@@ -151,6 +151,7 @@ func removeStaleStoreFiles(storePath string, tracked map[string]bool) error {
 
 // CollectFiles walks projectDir and returns relative paths of files matching
 // any include pattern and not matching any exclude pattern.
+//
 // Deprecated: use FileSet.Collect instead.
 func CollectFiles(projectDir string, include []string, exclude []string) ([]string, error) {
 	var fs FileSet

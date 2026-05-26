@@ -50,14 +50,7 @@ func TestRunPostCheckoutDetachedHead(t *testing.T) {
 	mustRunGit(t, repoDir, "commit", "-m", "init")
 	mustRunGit(t, repoDir, "checkout", "HEAD^0")
 
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
+	chdir(t, repoDir)
 
 	cfgTmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgTmp)
@@ -71,7 +64,7 @@ func TestRunPostCheckoutDetachedHead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = hooks.Run("post-checkout", []string{"abc123", "def456", "1"})
+	err := hooks.Run("post-checkout", []string{"abc123", "def456", "1"})
 	if err != nil {
 		t.Errorf("expected nil for detached HEAD, got %v", err)
 	}
@@ -117,16 +110,9 @@ func TestRunPostCheckoutBranchNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
+	chdir(t, repoDir)
 
-	err = hooks.Run("post-checkout", []string{"abc123", "def456", "1"})
+	err := hooks.Run("post-checkout", []string{"abc123", "def456", "1"})
 	if err != nil {
 		t.Errorf("expected nil when branch not found in store, got %v", err)
 	}
@@ -137,24 +123,15 @@ func TestRunPostCheckoutBranchNotFound(t *testing.T) {
 func TestRunPrePushNotInitialized(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	old := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = w
-	runErr := hooks.Run("pre-push", nil)
-	w.Close()
-	os.Stderr = old
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	stderr, runErr := captureStderr(t, func() error {
+		return hooks.Run("pre-push", nil)
+	})
 
 	if runErr != nil {
 		t.Errorf("expected nil, got %v", runErr)
 	}
-	if buf.Len() > 0 {
-		t.Errorf("expected no stderr output, got: %q", buf.String())
+	if stderr != "" {
+		t.Errorf("expected no stderr output, got: %q", stderr)
 	}
 }
 
@@ -178,33 +155,17 @@ func TestRunPrePushNoStore(t *testing.T) {
 	mustRunGit(t, repoDir, "add", ".")
 	mustRunGit(t, repoDir, "commit", "-m", "init")
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir) //nolint:errcheck
+	chdir(t, repoDir)
 
-	old := os.Stderr
-	r, w, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		t.Fatal(pipeErr)
-	}
-	os.Stderr = w
-	runErr := hooks.Run("pre-push", nil)
-	w.Close()
-	os.Stderr = old
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	stderr, runErr := captureStderr(t, func() error {
+		return hooks.Run("pre-push", nil)
+	})
 
 	if runErr != nil {
 		t.Errorf("expected nil, got %v", runErr)
 	}
-	if !strings.Contains(buf.String(), "warning") {
-		t.Errorf("expected a warning on stderr, got: %q", buf.String())
+	if !strings.Contains(stderr, "warning") {
+		t.Errorf("expected a warning on stderr, got: %q", stderr)
 	}
 }
 
@@ -246,14 +207,7 @@ func TestRunPrePushSuccess(t *testing.T) {
 	mustRunGit(t, projectDir, "commit", "-m", "init")
 	writeRunManifest(t, projectDir, `include = ["CONTEXT.md"]`)
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(projectDir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir) //nolint:errcheck
+	chdir(t, projectDir)
 
 	runErr := hooks.Run("pre-push", nil)
 	if runErr != nil {
@@ -264,6 +218,56 @@ func TestRunPrePushSuccess(t *testing.T) {
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+}
+
+func captureStderr(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Fatalf("close stderr pipe reader: %v", err)
+		}
+	}()
+
+	os.Stderr = w
+	defer func() {
+		os.Stderr = old
+	}()
+
+	runErr := fn()
+	os.Stderr = old
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stderr pipe writer: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	return buf.String(), runErr
+}
 
 func mustRunGit(t *testing.T, dir string, args ...string) {
 	t.Helper()

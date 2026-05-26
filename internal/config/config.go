@@ -76,7 +76,7 @@ func DefaultStorePath() (string, error) {
 // file does not exist.
 var ErrNotInitialized = errors.New("offstage not initialized: run 'offstage init <git-url>'")
 
-func Load() (*Config, error) {
+func Load() (cfg *Config, err error) {
 	p, err := Path()
 	if err != nil {
 		return nil, err
@@ -88,17 +88,22 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open config: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			cfg = nil
+			err = errors.Join(err, fmt.Errorf("close config: %w", closeErr))
+		}
+	}()
 
-	var cfg Config
-	if _, err := toml.NewDecoder(f).Decode(&cfg); err != nil {
+	var parsed Config
+	if _, err := toml.NewDecoder(f).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	return &cfg, nil
+	return &parsed, nil
 }
 
 // Write creates (or overwrites) the config file with the given Config.
-func Write(cfg *Config) error {
+func Write(cfg *Config) (err error) {
 	dir, err := Dir()
 	if err != nil {
 		return err
@@ -111,7 +116,12 @@ func Write(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("create config file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close config file: %w", closeErr))
+		}
+	}()
+
 	if err := toml.NewEncoder(f).Encode(cfg); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}

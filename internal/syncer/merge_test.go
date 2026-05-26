@@ -61,7 +61,7 @@ func seedMergeBranch(t *testing.T, s *store.Store, branchName string, files map[
 		}
 	}
 
-	mustGit(t, s.Path, "add", "-A")
+	mustGit(t, s.Path, "add", "--force", "-A")
 	// Use --allow-empty so we don't fail even if nothing changed.
 	mustGit(t, s.Path, "commit", "--allow-empty", "-m", "seed: "+branchName)
 	mustGit(t, s.Path, "push", "origin", branchName)
@@ -178,7 +178,7 @@ func TestMerge_Conflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(s.Path, "CONTEXT.md"), []byte("base\nline\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustGit(t, s.Path, "add", "-A")
+	mustGit(t, s.Path, "add", "--force", "-A")
 	mustGit(t, s.Path, "commit", "-m", "base on pid/main")
 	mustGit(t, s.Path, "push", "origin", pid+"/main")
 
@@ -187,7 +187,7 @@ func TestMerge_Conflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(s.Path, "CONTEXT.md"), []byte("feature conflicting change\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustGit(t, s.Path, "add", "-A")
+	mustGit(t, s.Path, "add", "--force", "-A")
 	mustGit(t, s.Path, "commit", "-m", "feature diverging commit")
 	mustGit(t, s.Path, "push", "origin", pid+"/feature")
 
@@ -196,7 +196,7 @@ func TestMerge_Conflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(s.Path, "CONTEXT.md"), []byte("main conflicting change\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustGit(t, s.Path, "add", "-A")
+	mustGit(t, s.Path, "add", "--force", "-A")
 	mustGit(t, s.Path, "commit", "-m", "main diverging commit")
 	mustGit(t, s.Path, "push", "origin", pid+"/main")
 
