@@ -56,9 +56,7 @@ func init() {
 	hooksCmd.AddCommand(hooksUninstallCmd)
 	hooksCmd.AddCommand(hooksRunCmd)
 
-	// hooks flags
-	hooksInstallCmd.Flags().Bool("local", false, "Install hooks locally in the current repo's .git/hooks/")
-	hooksUninstallCmd.Flags().Bool("local", false, "Uninstall hooks locally from the current repo's .git/hooks/")
+	// hooks install/uninstall only support local (.git/hooks/) mode; no flags needed.
 
 	// push flags
 	pushCmd.Flags().Bool("dry-run", false, "Print files that would be pushed without modifying the store")
@@ -305,47 +303,32 @@ var hooksCmd = &cobra.Command{
 
 var hooksInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install offstage git hooks",
+	Short: "Install offstage git hooks into the current repo's .git/hooks/",
+	Long: `Install offstage post-checkout and pre-push hooks into the current
+repository's .git/hooks/ directory.
+
+Only local installation (into .git/hooks/) is supported. This avoids touching
+the global git config and silently overriding hooks in unrelated repositories.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		local, err := cmd.Flags().GetBool("local")
-		if err != nil {
-			return fmt.Errorf("get local flag: %w", err)
-		}
-		if local {
-			gd, err := getGitDir()
-			if err != nil {
-				return err
-			}
-			return hooks.InstallLocal(gd)
-		}
-		cfgDir, err := config.Dir()
+		gd, err := getGitDir()
 		if err != nil {
 			return err
 		}
-		return hooks.Install(cfgDir)
+		return hooks.InstallLocal(gd)
 	},
 }
 
 var hooksUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Uninstall offstage git hooks",
+	Short: "Uninstall offstage git hooks from the current repo's .git/hooks/",
+	Long: `Remove offstage-written hook scripts from the current repository's
+.git/hooks/ directory. Hook files not written by offstage are left untouched.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		local, err := cmd.Flags().GetBool("local")
-		if err != nil {
-			return fmt.Errorf("get local flag: %w", err)
-		}
-		if local {
-			gd, err := getGitDir()
-			if err != nil {
-				return err
-			}
-			return hooks.UninstallLocal(gd)
-		}
-		cfgDir, err := config.Dir()
+		gd, err := getGitDir()
 		if err != nil {
 			return err
 		}
-		return hooks.Uninstall(cfgDir)
+		return hooks.UninstallLocal(gd)
 	},
 }
 
