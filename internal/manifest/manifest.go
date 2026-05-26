@@ -1,5 +1,4 @@
-// Package manifest tracks which files are managed by offstage for a given
-// project (via the sync config) and for global state.
+// Package manifest tracks which files are managed by offstage for a project.
 package manifest
 
 import (
@@ -19,23 +18,24 @@ type ProjectConfig struct {
 	// back to normalizing the git remote URL.
 	Name string `toml:"name"`
 
-	// Include lists glob patterns of files that should be synced.
+	// Include lists git-ignore-compatible patterns of files that should be synced.
 	Include []string `toml:"include"`
 
-	// Exclude lists glob patterns that should be excluded from syncing.
+	// Exclude lists git-ignore-compatible patterns that should be excluded from syncing.
 	Exclude []string `toml:"exclude"`
+
+	// GitExclude controls optional synchronization with git's local exclude file.
+	GitExclude GitExcludeConfig `toml:"git_exclude"`
 }
 
-// DefaultPatterns returns the default set of include patterns applied when
-// .offstagerc.toml is missing.
+type GitExcludeConfig struct {
+	// AutoSync keeps git's local exclude file aligned during project commands.
+	AutoSync bool `toml:"auto_sync"`
+}
+
+// DefaultPatterns returns the default include patterns for new manifests.
 func DefaultPatterns() []string {
-	return []string{
-		"CONTEXT.md",
-		"docs/adr/**",
-		"AGENTS.md",
-		".agents/**",
-		".offstagerc.toml",
-	}
+	return []string{}
 }
 
 // Load reads and parses the .offstagerc.toml in dir. If the file does not

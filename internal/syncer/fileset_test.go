@@ -29,9 +29,11 @@ func TestFileSet_Matches(t *testing.T) {
 		{"docs/adr/**", "docs/adr/sub/bar.md", true},
 		{"docs/adr/**", "docs/other.md", false},
 
-		// Standard single-star patterns (used by pull glob filtering).
+		// Git ignore patterns without slashes match at any depth.
 		{"*.md", "README.md", true},
-		{"*.md", "subdir/README.md", false},
+		{"*.md", "subdir/README.md", true},
+		{"/README.md", "README.md", true},
+		{"/README.md", "subdir/README.md", false},
 		{"subdir/*.md", "subdir/README.md", true},
 		{"subdir/*.md", "subdir/nested/README.md", false},
 
@@ -59,6 +61,7 @@ func TestFileSet_Collect(t *testing.T) {
 	writeFile(t, dir, ".agents/rules.md", "rules")
 	writeFile(t, dir, ".agents/sub/deep.md", "deep")
 	writeFile(t, dir, "docs/adr/0001-foo.md", "adr")
+	writeFile(t, dir, "nested/README.md", "nested")
 	writeFile(t, dir, "untracked.txt", "ignored")
 
 	t.Run("include patterns from push", func(t *testing.T) {
@@ -119,6 +122,34 @@ func TestFileSet_Collect(t *testing.T) {
 		}
 		if len(files) != 0 {
 			t.Errorf("expected no files with empty include, got %v", files)
+		}
+	})
+
+	t.Run("git ignore single-star matches nested files", func(t *testing.T) {
+		patternDir := t.TempDir()
+		writeFile(t, patternDir, "README.md", "root")
+		writeFile(t, patternDir, "nested/README.md", "nested")
+		writeFile(t, patternDir, "docs/guide.md", "guide")
+		writeFile(t, patternDir, "notes.txt", "notes")
+
+		files, err := fs.Collect(patternDir, []string{"*.md"}, nil)
+		if err != nil {
+			t.Fatalf("Collect: %v", err)
+		}
+
+		want := map[string]bool{
+			"README.md":        true,
+			"nested/README.md": true,
+			"docs/guide.md":    true,
+		}
+		for _, f := range files {
+			if !want[f] {
+				t.Errorf("unexpected file %q in result", f)
+			}
+			delete(want, f)
+		}
+		for f := range want {
+			t.Errorf("expected file %q not found in result", f)
 		}
 	})
 }

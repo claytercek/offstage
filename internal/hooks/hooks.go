@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/claytercek/offstage/internal/config"
+	"github.com/claytercek/offstage/internal/gitexclude"
 	"github.com/claytercek/offstage/internal/manifest"
 	"github.com/claytercek/offstage/internal/resolver"
 	"github.com/claytercek/offstage/internal/store"
@@ -122,6 +123,10 @@ func runPostCheckout(args []string) error {
 	if err != nil {
 		return nil
 	}
+	repoRoot, err := resolver.RepositoryRoot(cwd)
+	if err != nil {
+		return nil
+	}
 
 	s, err := store.Open(cfg.StorePath)
 	if err != nil {
@@ -135,7 +140,7 @@ func runPostCheckout(args []string) error {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- syncer.Pull(s, cwd, projectID, branch, false)
+		done <- syncer.Pull(s, repoRoot, projectID, branch, false)
 	}()
 
 	select {
@@ -170,9 +175,14 @@ func runPrePush() error {
 		return nil
 	}
 
-	mf, err := manifest.Load(cwd)
+	repoRoot, err := resolver.RepositoryRoot(cwd)
 	if err != nil {
-		return nil // no manifest, nothing to push
+		return nil
+	}
+
+	mf, err := manifest.Load(repoRoot)
+	if err != nil {
+		return nil
 	}
 
 	branch, err := resolver.ResolveBranchContext(cwd)
@@ -191,13 +201,19 @@ func runPrePush() error {
 		return nil
 	}
 
+	if mf.GitExclude.AutoSync {
+		if _, err := gitexclude.Sync(repoRoot, mf.Include); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
+		}
+	}
+
 	timeout := time.Duration(cfg.Hooks.Timeout()) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- syncer.Push(s, cwd, mf.Include, mf.Exclude, projectID, branch, false)
+		done <- syncer.Push(s, repoRoot, mf.Include, mf.Exclude, projectID, branch, false)
 	}()
 
 	select {

@@ -11,8 +11,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/claytercek/offstage/internal/config"
+	"github.com/claytercek/offstage/internal/gitexclude"
 	"github.com/claytercek/offstage/internal/hooks"
 	"github.com/claytercek/offstage/internal/manifest"
+	"github.com/claytercek/offstage/internal/resolver"
 	"github.com/claytercek/offstage/internal/store"
 	"github.com/claytercek/offstage/internal/syncenv"
 	"github.com/claytercek/offstage/internal/syncer"
@@ -28,13 +30,12 @@ func main() {
 var rootCmd = &cobra.Command{
 	Use:   "offstage",
 	Short: "Sync gitignored personal files across machines",
-	Long: `offstage syncs your gitignored personal files — CONTEXT.md, ADRs, AGENTS.md,
-and similar artefacts — across machines using a private git repository as the
-sync store.
+	Long: `offstage syncs gitignored personal project files across machines using
+a private git repository as the sync store.
 
 Quick start:
   offstage init <git-url>   Initialize with your private sync store
-  offstage track <pattern>  Track a file or glob
+  offstage track <pattern>  Track a file or pattern
   offstage push             Push local changes to the store
   offstage pull             Pull changes from the store
 `,
@@ -49,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(pullCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(gitCmd)
+	rootCmd.AddCommand(gitExcludeCmd)
 	rootCmd.AddCommand(mergeCmd)
 	rootCmd.AddCommand(diffCmd)
 	rootCmd.AddCommand(hooksCmd)
@@ -57,6 +59,9 @@ func init() {
 	hooksCmd.AddCommand(hooksRunCmd)
 
 	// hooks install/uninstall only support local (.git/hooks/) mode; no flags needed.
+
+	trackCmd.Flags().BoolVar(&trackSyncExclude, "sync-exclude", false, "Also sync tracked patterns to .git/info/exclude")
+	untrackCmd.Flags().BoolVar(&untrackSyncExclude, "sync-exclude", false, "Also sync tracked patterns to .git/info/exclude")
 
 	// push flags
 	pushCmd.Flags().Bool("dry-run", false, "Print files that would be pushed without modifying the store")
@@ -67,57 +72,69 @@ func init() {
 // Full implementations live in separate issues.
 // ---------------------------------------------------------------------------
 
+var trackSyncExclude bool
+
 var trackCmd = &cobra.Command{
 	Use:   "track <pattern>",
-	Short: "Track a file or glob pattern in the current project",
-	Long:  "Add a file or glob pattern to the sync config for this project. (offstage-1v1)",
+	Short: "Track a file or Git ignore pattern in the current project",
+	Long:  "Add a file or Git ignore pattern to the project manifest. (offstage-1v1)",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("get working directory: %w", err)
 		}
-		cfg, err := manifest.Load(cwd)
+		repoRoot, err := resolver.RepositoryRoot(cwd)
+		if err != nil {
+			return fmt.Errorf("resolve repository root: %w", err)
+		}
+		cfg, err := manifest.Load(repoRoot)
 		if err != nil {
 			return fmt.Errorf("load manifest: %w", err)
 		}
 		pattern := args[0]
 		if !manifest.AddPattern(cfg, pattern) {
 			fmt.Fprintf(cmd.OutOrStdout(), "already tracking %q\n", pattern)
-			return nil
+		} else {
+			if err := manifest.Write(repoRoot, cfg); err != nil {
+				return fmt.Errorf("write manifest: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "tracking %q\n", pattern)
 		}
-		if err := manifest.Write(cwd, cfg); err != nil {
-			return fmt.Errorf("write manifest: %w", err)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "tracking %q\n", pattern)
-		return nil
+		return syncGitExcludeIfRequested(cmd, repoRoot, cfg, trackSyncExclude)
 	},
 }
 
+var untrackSyncExclude bool
+
 var untrackCmd = &cobra.Command{
 	Use:   "untrack <pattern>",
-	Short: "Stop tracking a file or glob pattern",
-	Long:  "Remove a file or glob pattern from the sync config for this project. (offstage-1v1)",
+	Short: "Stop tracking a file or Git ignore pattern",
+	Long:  "Remove a file or Git ignore pattern from the project manifest. (offstage-1v1)",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("get working directory: %w", err)
 		}
-		cfg, err := manifest.Load(cwd)
+		repoRoot, err := resolver.RepositoryRoot(cwd)
+		if err != nil {
+			return fmt.Errorf("resolve repository root: %w", err)
+		}
+		cfg, err := manifest.Load(repoRoot)
 		if err != nil {
 			return fmt.Errorf("load manifest: %w", err)
 		}
 		pattern := args[0]
 		if !manifest.RemovePattern(cfg, pattern) {
 			fmt.Fprintf(cmd.OutOrStdout(), "%q is not tracked\n", pattern)
-			return nil
+		} else {
+			if err := manifest.Write(repoRoot, cfg); err != nil {
+				return fmt.Errorf("write manifest: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "no longer tracking %q\n", pattern)
 		}
-		if err := manifest.Write(cwd, cfg); err != nil {
-			return fmt.Errorf("write manifest: %w", err)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "no longer tracking %q\n", pattern)
-		return nil
+		return syncGitExcludeIfRequested(cmd, repoRoot, cfg, untrackSyncExclude)
 	},
 }
 
@@ -144,7 +161,13 @@ func runPush(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err := syncer.Push(env.Store, cwd, env.Manifest.Include, env.Manifest.Exclude, env.Resolved.ProjectID, env.Resolved.BranchName, dryRun); err != nil {
+	if !dryRun {
+		if err := syncGitExcludeIfEnabled(env.Resolved.RepoRoot, env.Manifest); err != nil {
+			return err
+		}
+	}
+
+	if err := syncer.Push(env.Store, env.Resolved.RepoRoot, env.Manifest.Include, env.Manifest.Exclude, env.Resolved.ProjectID, env.Resolved.BranchName, dryRun); err != nil {
 		return err
 	}
 	return nil
@@ -174,7 +197,7 @@ func runPull(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err := syncer.Pull(env.Store, cwd, env.Resolved.ProjectID, env.Resolved.BranchName, pullDryRun); err != nil {
+	if err := syncer.Pull(env.Store, env.Resolved.RepoRoot, env.Resolved.ProjectID, env.Resolved.BranchName, pullDryRun); err != nil {
 		if errors.Is(err, syncer.ErrBranchNotFound) || errors.Is(err, syncer.ErrDiverged) {
 			fmt.Fprintln(cmd.ErrOrStderr(), err)
 			os.Exit(1)
@@ -197,6 +220,31 @@ var gitCmd = &cobra.Command{
 	Long:               "Pass arbitrary git commands through to the sync store repository. (offstage-393)",
 	DisableFlagParsing: true,
 	RunE:               runGit,
+}
+
+var gitExcludeCmd = &cobra.Command{
+	Use:   "git-exclude",
+	Short: "Sync tracked patterns to .git/info/exclude",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get working directory: %w", err)
+		}
+		repoRoot, err := resolver.RepositoryRoot(cwd)
+		if err != nil {
+			return fmt.Errorf("resolve repository root: %w", err)
+		}
+		cfg, err := manifest.Load(repoRoot)
+		if err != nil {
+			return fmt.Errorf("load manifest: %w", err)
+		}
+		result, err := gitexclude.Sync(repoRoot, cfg.Include)
+		if err != nil {
+			return err
+		}
+		printGitExcludeResult(cmd, result)
+		return nil
+	},
 }
 
 func runGit(_ *cobra.Command, args []string) error {
@@ -339,6 +387,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := syncGitExcludeIfEnabled(env.Resolved.RepoRoot, env.Manifest); err != nil {
+		return err
+	}
 
 	if len(args) == 1 {
 		currentStoreBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
@@ -346,7 +397,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		err = syncer.DiffBranches(env.Store, currentStoreBranch, targetStoreBranch)
 	} else {
 		storeBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
-		err = syncer.DiffLocal(env.Store, cwd, env.Manifest.Include, env.Manifest.Exclude, storeBranch)
+		err = syncer.DiffLocal(env.Store, env.Resolved.RepoRoot, env.Manifest.Include, env.Manifest.Exclude, storeBranch)
 	}
 
 	if errors.Is(err, syncer.ErrHasDiff) {
@@ -358,4 +409,38 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 	return nil
+}
+
+func syncGitExcludeIfEnabled(repoRoot string, cfg *manifest.ProjectConfig) error {
+	if !cfg.GitExclude.AutoSync {
+		return nil
+	}
+	_, err := gitexclude.Sync(repoRoot, cfg.Include)
+	return err
+}
+
+func syncGitExcludeIfRequested(cmd *cobra.Command, repoRoot string, cfg *manifest.ProjectConfig, requested bool) error {
+	if !requested && !cfg.GitExclude.AutoSync {
+		return nil
+	}
+	result, err := gitexclude.Sync(repoRoot, cfg.Include)
+	if err != nil {
+		return err
+	}
+	if requested {
+		printGitExcludeResult(cmd, result)
+	}
+	return nil
+}
+
+func printGitExcludeResult(cmd *cobra.Command, result *gitexclude.Result) {
+	if result.PatternCount == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "nothing to exclude (no tracked patterns)")
+		return
+	}
+	if result.Changed {
+		fmt.Fprintf(cmd.OutOrStdout(), "synced %d patterns to %s\n", result.PatternCount, result.Path)
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "git exclude already up to date (%d patterns)\n", result.PatternCount)
 }

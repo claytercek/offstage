@@ -7,31 +7,45 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	ignore "github.com/sabhiram/go-gitignore"
 )
 
+type patternMatcher interface {
+	MatchesPath(string) bool
+}
+
 // FileSet provides unified file tracking across push and pull operations.
-// It encapsulates glob matching, file enumeration, and file copying.
+// It encapsulates pattern matching, file enumeration, and file copying.
 type FileSet struct{}
 
 // Collect walks dir and returns relative paths of files matching any include
 // pattern and not matching any exclude pattern.
 func (FileSet) Collect(dir string, include []string, exclude []string) ([]string, error) {
 	var result []string
+	includeMatcher := compilePatterns(include)
+	excludeMatcher := compilePatterns(exclude)
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if d.IsDir() {
-			return nil
 		}
 
 		relPath, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
+		if relPath == ".git" || strings.HasPrefix(relPath, ".git"+string(filepath.Separator)) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
 
-		if matchesAny(relPath, include) && !matchesAny(relPath, exclude) {
+		if matchesAny(relPath, includeMatcher) && !matchesAny(relPath, excludeMatcher) {
 			result = append(result, relPath)
 		}
 		return nil
@@ -42,10 +56,9 @@ func (FileSet) Collect(dir string, include []string, exclude []string) ([]string
 	return result, nil
 }
 
-// Matches reports whether path matches the given glob pattern.
-// Supports ** for recursive directory matching.
+// Matches reports whether path matches the given git-ignore-compatible pattern.
 func (FileSet) Matches(pattern, path string) bool {
-	return matchGlob(pattern, path)
+	return compilePatterns([]string{pattern}).MatchesPath(path)
 }
 
 // Copy copies the file at src to dst, creating dst if it does not exist.
@@ -76,33 +89,10 @@ func (FileSet) Copy(src, dst string) (err error) {
 	return nil
 }
 
-// matchesAny returns true if path matches any of the glob patterns.
-func matchesAny(path string, patterns []string) bool {
-	for _, pattern := range patterns {
-		if matchGlob(pattern, path) {
-			return true
-		}
-	}
-	return false
+func compilePatterns(patterns []string) patternMatcher {
+	return ignore.CompileIgnoreLines(patterns...)
 }
 
-// matchGlob matches a single pattern against path, supporting ** for
-// recursive directory matching.
-func matchGlob(pattern, path string) bool {
-	if !strings.Contains(pattern, "**") {
-		ok, _ := filepath.Match(pattern, path)
-		return ok
-	}
-
-	// Split on "/**" to get prefix and suffix.
-	parts := strings.SplitN(pattern, "/**", 2)
-	prefix := parts[0]
-
-	if prefix == "" {
-		// Pattern is "**" or "/**..." — matches everything.
-		return true
-	}
-
-	// path must start with prefix+"/" or equal prefix.
-	return strings.HasPrefix(path, prefix+"/") || path == prefix
+func matchesAny(path string, matcher patternMatcher) bool {
+	return matcher.MatchesPath(path)
 }

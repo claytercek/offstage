@@ -9,6 +9,8 @@ import (
 
 // Result holds the resolved project identity and branch name.
 type Result struct {
+	// RepoRoot is the top-level directory of the git repository.
+	RepoRoot string
 	// ProjectID is a normalized identifier derived from the git remote "origin",
 	// e.g. "github.com/clay/my-project". Can be overridden by .offstagerc.toml.
 	ProjectID string
@@ -20,6 +22,11 @@ type Result struct {
 // Resolve returns the project identity and current branch for the git repo
 // containing dir. Returns an error if dir is not inside a git repo.
 func Resolve(dir string) (*Result, error) {
+	repoRoot, err := RepositoryRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	projectID, err := ResolveProjectID(dir)
 	if err != nil {
 		return nil, err
@@ -31,6 +38,7 @@ func Resolve(dir string) (*Result, error) {
 	}
 
 	return &Result{
+		RepoRoot:   repoRoot,
 		ProjectID:  projectID,
 		BranchName: branch,
 	}, nil

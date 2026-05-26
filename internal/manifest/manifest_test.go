@@ -9,9 +9,9 @@ import (
 	"github.com/claytercek/offstage/internal/manifest"
 )
 
-// TestLoadMissingReturnsDefaults verifies that a missing .offstagerc.toml
-// returns defaults without error.
-func TestLoadMissingReturnsDefaults(t *testing.T) {
+// TestLoadMissingReturnsEmptyConfig verifies that a missing .offstagerc.toml
+// returns an empty config without error.
+func TestLoadMissingReturnsEmptyConfig(t *testing.T) {
 	tmp := t.TempDir()
 
 	cfg, err := manifest.Load(tmp)
@@ -19,9 +19,8 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 		t.Fatalf("Load: unexpected error: %v", err)
 	}
 
-	defaults := manifest.DefaultPatterns()
-	if !reflect.DeepEqual(cfg.Include, defaults) {
-		t.Errorf("Include: got %v, want %v", cfg.Include, defaults)
+	if len(cfg.Include) != 0 {
+		t.Errorf("Include: got %v, want empty slice", cfg.Include)
 	}
 	if len(cfg.Exclude) != 0 {
 		t.Errorf("Exclude: got %v, want empty slice", cfg.Exclude)
@@ -131,6 +130,9 @@ func TestRoundTripPreservesAllFields(t *testing.T) {
 		Name:    "my-project",
 		Include: []string{"CONTEXT.md", "docs/adr/**"},
 		Exclude: []string{"docs/adr/draft-*"},
+		GitExclude: manifest.GitExcludeConfig{
+			AutoSync: true,
+		},
 	}
 
 	if err := manifest.Write(tmp, original); err != nil {
@@ -151,6 +153,9 @@ func TestRoundTripPreservesAllFields(t *testing.T) {
 	if !reflect.DeepEqual(got.Exclude, original.Exclude) {
 		t.Errorf("Exclude: got %v, want %v", got.Exclude, original.Exclude)
 	}
+	if got.GitExclude.AutoSync != original.GitExclude.AutoSync {
+		t.Errorf("GitExclude.AutoSync: got %v, want %v", got.GitExclude.AutoSync, original.GitExclude.AutoSync)
+	}
 }
 
 // TestAddPatternIsIdempotent verifies that adding an already-present pattern
@@ -162,7 +167,7 @@ func TestAddPatternIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	// CONTEXT.md is in the defaults.
+	manifest.AddPattern(cfg, "CONTEXT.md")
 	added := manifest.AddPattern(cfg, "CONTEXT.md")
 	if added {
 		t.Fatal("AddPattern: expected false for already-present pattern, got true")

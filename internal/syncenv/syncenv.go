@@ -21,7 +21,7 @@ type SyncEnv struct {
 	Store    *store.Store
 }
 
-// Open loads the global config, the per-project manifest rooted at cwd,
+// Open loads the global config, the per-project manifest rooted at the repo,
 // resolves the current project identity, and opens the sync store. All four
 // steps must succeed; the first failure returns an error.
 func Open(cwd string) (*SyncEnv, error) {
@@ -30,14 +30,14 @@ func Open(cwd string) (*SyncEnv, error) {
 		return nil, err
 	}
 
-	mf, err := manifest.Load(cwd)
-	if err != nil {
-		return nil, fmt.Errorf("load manifest: %w", err)
-	}
-
 	res, err := resolver.Resolve(cwd)
 	if err != nil {
 		return nil, fmt.Errorf("resolve project: %w", err)
+	}
+
+	mf, err := manifest.Load(res.RepoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load manifest: %w", err)
 	}
 
 	s, err := store.Open(cfg.StorePath)
