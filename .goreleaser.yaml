@@ -9,6 +9,10 @@ before:
 builds:
   - binary: offstage
     main: ./cmd/offstage
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
     ldflags:
       - -s -w -X main.version={{.Tag}}
     goos:
@@ -25,6 +29,9 @@ archives:
       - goos: windows
         formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ .Arch }}"
+
+universal_binaries:
+  - replace: true
 
 checksum:
   name_template: checksums.txt
@@ -43,6 +50,9 @@ signs:
 
 sboms:
   - artifacts: archive
+
+release:
+  prerelease: auto
 
 changelog:
   sort: asc
