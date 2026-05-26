@@ -80,11 +80,18 @@ func UninstallLocal(repoGitDir string) error {
 // Run is the entry point called by hook shell scripts. It never returns a
 // non-nil error — any failure is printed as a warning and the hook exits 0.
 func Run(hookName string, args []string) error {
+	return RunWithExecutor(hookName, args, nil)
+}
+
+// RunWithExecutor is the injectable variant of Run. Pass a non-nil executor
+// to override the real syncer calls (used in unit tests). Pass RunOption
+// values to override config-driven defaults such as the timeout.
+func RunWithExecutor(hookName string, args []string, ex HookExecutor, opts ...RunOption) error {
 	switch hookName {
 	case "post-checkout":
-		return runPostCheckout(args)
+		return runPostCheckout(args, ex, opts)
 	case "pre-push":
-		return runPrePush()
+		return runPrePush(ex, opts)
 	default:
 		return nil
 	}
@@ -92,7 +99,7 @@ func Run(hookName string, args []string) error {
 
 // runPostCheckout implements the post-checkout hook. Git calls it with:
 // <prev-HEAD> <new-HEAD> <flag> where flag is 1 for branch switch, 0 for file checkout.
-func runPostCheckout(args []string) error {
+func runPostCheckout(args []string, ex HookExecutor, opts []RunOption) error {
 	if len(args) >= 3 && args[2] == "0" {
 		return nil // file checkout, not a branch switch
 	}
@@ -102,13 +109,28 @@ func runPostCheckout(args []string) error {
 		return nil
 	}
 
-	cfg, err := config.Load()
-	if errors.Is(err, config.ErrNotInitialized) {
-		return nil
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
-		return nil
+	// When no executor is injected, use the real syncer wired up from config.
+	// Config load drives the silent-no-op / warn / store-open decisions.
+	if ex == nil {
+		cfg, err := config.Load()
+		if errors.Is(err, config.ErrNotInitialized) {
+			return nil // silent no-op: offstage not configured here
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
+			return nil
+		}
+		s, err := store.Open(cfg.StorePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
+			return nil
+		}
+		ex = &LiveExecutor{Store: s}
+		// When wiring from config, also pick up the configured timeout unless
+		// an explicit WithTimeout option was supplied.
+		if !hasTimeoutOpt(opts) {
+			opts = append(opts, WithTimeout(time.Duration(cfg.Hooks.Timeout())*time.Second))
+		}
 	}
 
 	branch, err := resolver.ResolveBranchContext(cwd)
@@ -128,19 +150,13 @@ func runPostCheckout(args []string) error {
 		return nil
 	}
 
-	s, err := store.Open(cfg.StorePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
-		return nil
-	}
-
-	timeout := time.Duration(cfg.Hooks.Timeout()) * time.Second
+	timeout := effectiveTimeout(opts)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- syncer.Pull(s, repoRoot, projectID, branch, false)
+		done <- ex.Pull(repoRoot, projectID, branch)
 	}()
 
 	select {
@@ -160,19 +176,31 @@ func runPostCheckout(args []string) error {
 
 // runPrePush implements the pre-push hook. Any error is printed as a warning;
 // the push always proceeds (always exits 0).
-func runPrePush() error {
+func runPrePush(ex HookExecutor, opts []RunOption) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil
 	}
 
-	cfg, err := config.Load()
-	if errors.Is(err, config.ErrNotInitialized) {
-		return nil
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
-		return nil
+	// When no executor is injected, use the real syncer wired up from config.
+	if ex == nil {
+		cfg, err := config.Load()
+		if errors.Is(err, config.ErrNotInitialized) {
+			return nil // silent no-op: offstage not configured here
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
+			return nil
+		}
+		s, err := store.Open(cfg.StorePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
+			return nil
+		}
+		ex = &LiveExecutor{Store: s}
+		if !hasTimeoutOpt(opts) {
+			opts = append(opts, WithTimeout(time.Duration(cfg.Hooks.Timeout())*time.Second))
+		}
 	}
 
 	repoRoot, err := resolver.RepositoryRoot(cwd)
@@ -195,25 +223,19 @@ func runPrePush() error {
 		return nil
 	}
 
-	s, err := store.Open(cfg.StorePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
-		return nil
-	}
-
 	if mf.GitExclude.AutoSync {
 		if _, err := gitexclude.Sync(repoRoot, mf.Include); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
 		}
 	}
 
-	timeout := time.Duration(cfg.Hooks.Timeout()) * time.Second
+	timeout := effectiveTimeout(opts)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- syncer.Push(s, repoRoot, mf.Include, mf.Exclude, projectID, branch, false)
+		done <- ex.Push(repoRoot, mf.Include, mf.Exclude, projectID, branch)
 	}()
 
 	select {
@@ -226,4 +248,29 @@ func runPrePush() error {
 	}
 
 	return nil
+}
+
+// effectiveTimeout returns the timeout from opts, or a sensible default if
+// none was set. The caller is responsible for prepending a WithTimeout option
+// from config when wiring the live path.
+func effectiveTimeout(opts []RunOption) time.Duration {
+	o := &runOptions{}
+	for _, opt := range opts {
+		opt(o)
+	}
+	if o.timeout > 0 {
+		return o.timeout
+	}
+	// Fallback default when called without a configured timeout (e.g. in tests
+	// that inject an executor but omit WithTimeout).
+	return 5 * time.Second
+}
+
+// hasTimeoutOpt returns true if any of opts sets a timeout.
+func hasTimeoutOpt(opts []RunOption) bool {
+	o := &runOptions{}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return o.timeout > 0
 }
