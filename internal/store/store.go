@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/claytercek/offstage/internal/gitutil"
 )
 
 // Store wraps a local path to the cloned sync store.
@@ -44,15 +46,6 @@ const (
 	BranchDiverged
 )
 
-// gitBin returns the path to the git binary, checking the system PATH first
-// and falling back to /usr/bin/git.
-func gitBin() string {
-	if p, err := exec.LookPath("git"); err == nil {
-		return p
-	}
-	return "/usr/bin/git"
-}
-
 // Clone clones the sync store from url into localPath.
 // If localPath already exists and is non-empty it returns an error rather than
 // clobbering the existing clone.
@@ -71,7 +64,7 @@ func Clone(url, localPath string) error {
 	}
 
 	// Use the system git binary.
-	cmd := exec.Command(gitBin(), "clone", url, localPath)
+	cmd := exec.Command(gitutil.Bin(), "clone", url, localPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -86,7 +79,7 @@ func Clone(url, localPath string) error {
 // Open verifies that path is a git repository and returns a Store for it.
 // Returns an error if path is not a git repository.
 func Open(path string) (*Store, error) {
-	cmd := exec.Command(gitBin(), "-C", path, "rev-parse", "--git-dir")
+	cmd := exec.Command(gitutil.Bin(), "-C", path, "rev-parse", "--git-dir")
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("not a git repository: %s", path)
 	}
@@ -96,28 +89,13 @@ func Open(path string) (*Store, error) {
 // git runs an arbitrary git command inside the store directory, inheriting
 // stdout and stderr from the current process.
 func (s *Store) git(args ...string) error {
-	fullArgs := append([]string{"-C", s.Path}, args...)
-	cmd := exec.Command(gitBin(), fullArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
-	}
-	return nil
+	return gitutil.Run(s.Path, args...)
 }
 
 // gitOutput runs an arbitrary git command inside the store directory and
 // captures stdout, returning (output, error).
 func (s *Store) gitOutput(args ...string) (string, error) {
-	fullArgs := append([]string{"-C", s.Path}, args...)
-	cmd := exec.Command(gitBin(), fullArgs...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
-	}
-	return out.String(), nil
+	return gitutil.Output(s.Path, args...)
 }
 
 // CurrentBranch returns the name of the current branch using
@@ -132,16 +110,14 @@ func (s *Store) CurrentBranch() (string, error) {
 
 // BranchExists returns true if the named local branch exists.
 func (s *Store) BranchExists(branch string) bool {
-	fullArgs := []string{"-C", s.Path, "rev-parse", "--verify", "refs/heads/" + branch}
-	cmd := exec.Command(gitBin(), fullArgs...)
+	cmd := exec.Command(gitutil.Bin(), "-C", s.Path, "rev-parse", "--verify", "refs/heads/"+branch)
 	return cmd.Run() == nil
 }
 
 // RemoteBranchExists returns true if the named remote tracking branch exists
 // (i.e. refs/remotes/origin/<branch>).
 func (s *Store) RemoteBranchExists(branch string) bool {
-	fullArgs := []string{"-C", s.Path, "rev-parse", "--verify", "refs/remotes/origin/" + branch}
-	cmd := exec.Command(gitBin(), fullArgs...)
+	cmd := exec.Command(gitutil.Bin(), "-C", s.Path, "rev-parse", "--verify", "refs/remotes/origin/"+branch)
 	return cmd.Run() == nil
 }
 
@@ -295,8 +271,7 @@ func (s *Store) Pull() error {
 // MergeBranch merges the named branch into HEAD using --no-ff.
 // If the merge fails (e.g. conflict), it returns an error with conflict info.
 func (s *Store) MergeBranch(branch string) error {
-	fullArgs := []string{"-C", s.Path, "merge", "--no-ff", branch}
-	cmd := exec.Command(gitBin(), fullArgs...)
+	cmd := exec.Command(gitutil.Bin(), "-C", s.Path, "merge", "--no-ff", branch)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
