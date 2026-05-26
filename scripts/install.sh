@@ -15,7 +15,8 @@ case "$ARCH" in
 esac
 
 case "$OS" in
-  Darwin|Linux) ;;
+  Darwin) ARCH="all" ;;
+  Linux) ;;
   *) echo "error: unsupported OS: $OS (use install.ps1 on Windows)" >&2; exit 1 ;;
 esac
 
