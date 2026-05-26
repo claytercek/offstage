@@ -51,6 +51,19 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 		return nil
 	}
 
+	// Build a set of currently tracked relative paths for fast lookup.
+	tracked := make(map[string]bool, len(files))
+	for _, f := range files {
+		tracked[f] = true
+	}
+
+	// Remove any files present in the store working tree that are no longer
+	// in the tracked set. This ensures that untrack takes effect immediately
+	// and the store does not accumulate stale files across pushes.
+	if err := removeStaleStoreFiles(s.Path, tracked); err != nil {
+		return fmt.Errorf("remove stale store files: %w", err)
+	}
+
 	// Copy each file to the same relative path in the store working tree.
 	for _, relPath := range files {
 		src := filepath.Join(projectDir, relPath)
@@ -97,6 +110,42 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 	}
 
 	return nil
+}
+
+// removeStaleStoreFiles walks the store working tree and deletes any file whose
+// relative path is not present in the tracked set. The .git directory is
+// always skipped. Empty directories left behind by deletions are also removed.
+func removeStaleStoreFiles(storePath string, tracked map[string]bool) error {
+	return filepath.WalkDir(storePath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, relErr := filepath.Rel(storePath, path)
+		if relErr != nil {
+			return relErr
+		}
+
+		// Always skip the .git directory.
+		if relPath == ".git" || strings.HasPrefix(relPath, ".git"+string(filepath.Separator)) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		// If this file is not in the tracked set, remove it.
+		if !tracked[relPath] {
+			if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+				return fmt.Errorf("remove stale file %s: %w", relPath, removeErr)
+			}
+		}
+		return nil
+	})
 }
 
 // CollectFiles walks projectDir and returns relative paths of files matching

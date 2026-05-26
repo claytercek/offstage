@@ -222,3 +222,52 @@ func TestCollectFiles_Exclude(t *testing.T) {
 		}
 	}
 }
+
+// TestPush_StaleFilesRemovedAfterUntrack verifies that when include patterns
+// are narrowed (simulating "offstage untrack"), a subsequent push removes files
+// from the store that no longer match the new patterns.
+func TestPush_StaleFilesRemovedAfterUntrack(t *testing.T) {
+	remoteDir := setupBareRemote(t)
+	s := setupLocalStore(t, remoteDir)
+	projectDir := setupProjectDir(t) // has CONTEXT.md and .agents/rules.md
+
+	projectID := "github.com/test/my-project"
+	branchName := "main"
+
+	// First push: include both CONTEXT.md and .agents/**
+	include1 := []string{"CONTEXT.md", ".agents/**"}
+	if err := syncer.Push(s, projectDir, include1, nil, projectID, branchName, false); err != nil {
+		t.Fatalf("first Push failed: %v", err)
+	}
+
+	storeBranch := projectID + "/" + branchName
+
+	// Confirm .agents/rules.md was committed in the store.
+	if err := s.Checkout(storeBranch); err != nil {
+		t.Fatalf("checkout store branch: %v", err)
+	}
+	rulesInStore := filepath.Join(s.Path, ".agents/rules.md")
+	if _, err := os.Stat(rulesInStore); err != nil {
+		t.Fatalf(".agents/rules.md should exist in store after first push: %v", err)
+	}
+
+	// Second push: drop .agents/** (simulate untrack). Only CONTEXT.md is tracked now.
+	include2 := []string{"CONTEXT.md"}
+	if err := syncer.Push(s, projectDir, include2, nil, projectID, branchName, false); err != nil {
+		t.Fatalf("second Push (after untrack) failed: %v", err)
+	}
+
+	// After the second push, .agents/rules.md must NOT exist in the store.
+	if err := s.Checkout(storeBranch); err != nil {
+		t.Fatalf("checkout store branch after second push: %v", err)
+	}
+	if _, err := os.Stat(rulesInStore); err == nil {
+		t.Error(".agents/rules.md still exists in store after untrack + push; stale file was not removed")
+	}
+
+	// CONTEXT.md must still exist in the store.
+	contextInStore := filepath.Join(s.Path, "CONTEXT.md")
+	if _, err := os.Stat(contextInStore); err != nil {
+		t.Errorf("CONTEXT.md should still exist in store after second push: %v", err)
+	}
+}
