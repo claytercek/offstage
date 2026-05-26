@@ -57,7 +57,7 @@ func seedStoreBranch(t *testing.T, s *store.Store, storeBranch string, files map
 	defaultBranch := currentBranch(t, s.Path)
 
 	// Create the branch.
-	if err := s.Exec("checkout", "-b", storeBranch); err != nil {
+	if err := s.CreateBranch(storeBranch); err != nil {
 		t.Fatalf("create store branch %s: %v", storeBranch, err)
 	}
 
@@ -75,7 +75,7 @@ func seedStoreBranch(t *testing.T, s *store.Store, storeBranch string, files map
 	mustRun(t, "git", "-C", s.Path, "commit", "-m", "seed files for pull test")
 
 	// Push the branch to origin.
-	if err := s.Exec("push", "origin", storeBranch); err != nil {
+	if err := s.Push(); err != nil {
 		t.Fatalf("push store branch %s: %v", storeBranch, err)
 	}
 
@@ -199,7 +199,7 @@ func TestPullDiverged(t *testing.T) {
 		t.Fatalf("fetch: %v", err)
 	}
 	// Checkout the store branch locally.
-	if err := s.Exec("checkout", storeBranch); err != nil {
+	if err := s.Checkout(storeBranch); err != nil {
 		t.Fatalf("checkout storeBranch in s: %v", err)
 	}
 	// Make a local diverging commit (without pulling).
@@ -209,9 +209,6 @@ func TestPullDiverged(t *testing.T) {
 	mustRun(t, "git", "-C", s.Path, "add", "-A")
 	mustRun(t, "git", "-C", s.Path, "commit", "-m", "local diverging commit")
 
-	// Return to default branch.
-	defaultBranch := currentBranch(t, s.Path)
-	_ = defaultBranch
 	// Note: we're now on storeBranch; Pull will fetch and detect divergence.
 
 	projectDir := t.TempDir()

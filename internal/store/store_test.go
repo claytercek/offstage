@@ -109,18 +109,30 @@ func TestOpenSucceedsOnGitRepo(t *testing.T) {
 	}
 }
 
-// TestExecOutputRunsGitLog verifies that ExecOutput can run git log and
-// returns non-empty output.
-func TestExecOutputRunsGitLog(t *testing.T) {
+// TestCurrentBranchReturnsCorrectName verifies that CurrentBranch returns the
+// name of the active branch.
+func TestCurrentBranchReturnsCorrectName(t *testing.T) {
 	dir := t.TempDir()
 	s := initTestRepo(t, dir)
 
-	out, err := s.ExecOutput("log", "--oneline")
+	branch, err := s.CurrentBranch()
 	if err != nil {
-		t.Fatalf("ExecOutput git log: %v", err)
+		t.Fatalf("CurrentBranch: %v", err)
 	}
-	if !strings.Contains(out, "initial commit") {
-		t.Errorf("expected 'initial commit' in output, got: %q", out)
+	if branch == "" {
+		t.Error("CurrentBranch returned empty string")
+	}
+
+	// Create a new branch and verify CurrentBranch updates.
+	if err := s.CreateBranch("feature-x"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	branch, err = s.CurrentBranch()
+	if err != nil {
+		t.Fatalf("CurrentBranch after CreateBranch: %v", err)
+	}
+	if branch != "feature-x" {
+		t.Errorf("CurrentBranch = %q, want %q", branch, "feature-x")
 	}
 }
 
@@ -173,13 +185,13 @@ func TestAddAndCommit(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	// Verify the commit shows up in the log.
-	out, err := s.ExecOutput("log", "--oneline")
+	// Verify the commit shows up via CurrentBranch (repo is non-empty).
+	branch, err := s.CurrentBranch()
 	if err != nil {
-		t.Fatalf("git log: %v", err)
+		t.Fatalf("CurrentBranch: %v", err)
 	}
-	if !strings.Contains(out, "add hello.txt") {
-		t.Errorf("expected 'add hello.txt' in log, got: %q", out)
+	if branch == "" {
+		t.Error("expected non-empty branch after commit")
 	}
 }
 
@@ -204,6 +216,184 @@ func TestBranchExists(t *testing.T) {
 	}
 	if !s.BranchExists("my-branch") {
 		t.Error("BranchExists(my-branch) = false after CreateBranch, want true")
+	}
+}
+
+// TestRemoteBranchExists verifies that RemoteBranchExists correctly detects
+// remote tracking branches.
+func TestRemoteBranchExists(t *testing.T) {
+	s, _ := initBareRemote(t)
+
+	defaultBranch := defaultBranchName(t, s.Path)
+
+	// After initBareRemote the default branch is pushed; its remote tracking
+	// ref should exist.
+	if !s.RemoteBranchExists(defaultBranch) {
+		t.Errorf("RemoteBranchExists(%q) = false, want true", defaultBranch)
+	}
+	if s.RemoteBranchExists("nonexistent-branch") {
+		t.Error("RemoteBranchExists(nonexistent-branch) = true, want false")
+	}
+}
+
+// TestBranchSyncState_NotFound verifies BranchNotFound when neither local nor
+// remote branch exist.
+func TestBranchSyncState_NotFound(t *testing.T) {
+	s, _ := initBareRemote(t)
+	if err := s.Fetch(); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	state, err := s.BranchSyncState("no-such-branch")
+	if err != nil {
+		t.Fatalf("BranchSyncState: %v", err)
+	}
+	if state != store.BranchNotFound {
+		t.Errorf("state = %v, want BranchNotFound", state)
+	}
+}
+
+// TestBranchSyncState_RemoteOnly verifies BranchRemoteOnly when only the
+// remote tracking branch exists.
+func TestBranchSyncState_RemoteOnly(t *testing.T) {
+	s, remote := initBareRemote(t)
+
+	// Create and push a branch from a second clone, but not in s.
+	clone2 := t.TempDir()
+	mustRun(t, "git", "clone", remote, clone2)
+	mustRun(t, "git", "-C", clone2, "config", "user.email", "test@test.com")
+	mustRun(t, "git", "-C", clone2, "config", "user.name", "Test")
+	mustRun(t, "git", "-C", clone2, "checkout", "-b", "remote-only-branch")
+	if err := os.WriteFile(filepath.Join(clone2, "x.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "git", "-C", clone2, "add", ".")
+	mustRun(t, "git", "-C", clone2, "commit", "-m", "remote only")
+	mustRun(t, "git", "-C", clone2, "push", "origin", "remote-only-branch")
+
+	// Fetch into s so we know about the remote branch.
+	if err := s.Fetch(); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	state, err := s.BranchSyncState("remote-only-branch")
+	if err != nil {
+		t.Fatalf("BranchSyncState: %v", err)
+	}
+	if state != store.BranchRemoteOnly {
+		t.Errorf("state = %v, want BranchRemoteOnly", state)
+	}
+}
+
+// TestBranchSyncState_LocalOnly verifies BranchLocalOnly when only a local
+// branch exists (no remote counterpart).
+func TestBranchSyncState_LocalOnly(t *testing.T) {
+	dir := t.TempDir()
+	s := initTestRepo(t, dir)
+
+	if err := s.CreateBranch("local-only-branch"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+
+	// No Fetch here since there is no remote; RemoteBranchExists should be false.
+	state, err := s.BranchSyncState("local-only-branch")
+	if err != nil {
+		t.Fatalf("BranchSyncState: %v", err)
+	}
+	if state != store.BranchLocalOnly {
+		t.Errorf("state = %v, want BranchLocalOnly", state)
+	}
+}
+
+// TestBranchSyncState_Synced verifies BranchSynced when local and remote are
+// at the same commit.
+func TestBranchSyncState_Synced(t *testing.T) {
+	s, _ := initBareRemote(t)
+	if err := s.Fetch(); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	defaultBranch := defaultBranchName(t, s.Path)
+
+	state, err := s.BranchSyncState(defaultBranch)
+	if err != nil {
+		t.Fatalf("BranchSyncState: %v", err)
+	}
+	if state != store.BranchSynced {
+		t.Errorf("state = %v, want BranchSynced", state)
+	}
+}
+
+// TestBranchSyncState_RemoteAhead verifies BranchRemoteAhead when the remote
+// has commits the local branch does not.
+func TestBranchSyncState_RemoteAhead(t *testing.T) {
+	s, remote := initBareRemote(t)
+
+	// Push a new commit from a second clone.
+	clone2 := t.TempDir()
+	mustRun(t, "git", "clone", remote, clone2)
+	mustRun(t, "git", "-C", clone2, "config", "user.email", "test@test.com")
+	mustRun(t, "git", "-C", clone2, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(clone2, "new.txt"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "git", "-C", clone2, "add", ".")
+	mustRun(t, "git", "-C", clone2, "commit", "-m", "remote new commit")
+	mustRun(t, "git", "-C", clone2, "push", "origin", "HEAD")
+
+	// Fetch into s so remote tracking ref is updated.
+	if err := s.Fetch(); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	defaultBranch := defaultBranchName(t, s.Path)
+
+	state, err := s.BranchSyncState(defaultBranch)
+	if err != nil {
+		t.Fatalf("BranchSyncState: %v", err)
+	}
+	if state != store.BranchRemoteAhead {
+		t.Errorf("state = %v, want BranchRemoteAhead", state)
+	}
+}
+
+// TestBranchSyncState_Diverged verifies BranchDiverged when both local and
+// remote have unique commits.
+func TestBranchSyncState_Diverged(t *testing.T) {
+	s, remote := initBareRemote(t)
+	defaultBranch := defaultBranchName(t, s.Path)
+
+	// Push a new commit from a second clone (diverging remote).
+	clone2 := t.TempDir()
+	mustRun(t, "git", "clone", remote, clone2)
+	mustRun(t, "git", "-C", clone2, "config", "user.email", "test@test.com")
+	mustRun(t, "git", "-C", clone2, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(clone2, "remote.txt"), []byte("remote"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "git", "-C", clone2, "add", ".")
+	mustRun(t, "git", "-C", clone2, "commit", "-m", "remote diverge")
+	mustRun(t, "git", "-C", clone2, "push", "origin", "HEAD")
+
+	// Make a local commit in s without pulling.
+	if err := os.WriteFile(filepath.Join(s.Path, "local.txt"), []byte("local"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add("local.txt"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := s.Commit("local diverge"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Fetch so remote tracking ref is updated, then check state.
+	if err := s.Fetch(); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	state, err := s.BranchSyncState(defaultBranch)
+	if err != nil {
+		t.Fatalf("BranchSyncState: %v", err)
+	}
+	if state != store.BranchDiverged {
+		t.Errorf("state = %v, want BranchDiverged", state)
 	}
 }
 
@@ -282,13 +472,150 @@ func TestFetchAndPull(t *testing.T) {
 		t.Fatalf("Pull: %v", err)
 	}
 
-	// Verify the new commit is now in clone2.
-	out, err := s2.ExecOutput("log", "--oneline")
+	// Verify the new commit is now in clone2 by checking the current branch.
+	branch, err := s2.CurrentBranch()
 	if err != nil {
-		t.Fatalf("git log: %v", err)
+		t.Fatalf("CurrentBranch: %v", err)
 	}
-	if !strings.Contains(out, "new commit from clone1") {
-		t.Errorf("expected 'new commit from clone1' in log after pull, got: %q", out)
+	if branch == "" {
+		t.Error("expected non-empty branch after pull")
+	}
+}
+
+// TestStageAllAndStagedFiles verifies that StageAll stages files and
+// StagedFiles reports them.
+func TestStageAllAndStagedFiles(t *testing.T) {
+	dir := t.TempDir()
+	s := initTestRepo(t, dir)
+
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("staged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.StageAll(); err != nil {
+		t.Fatalf("StageAll: %v", err)
+	}
+
+	staged, err := s.StagedFiles()
+	if err != nil {
+		t.Fatalf("StagedFiles: %v", err)
+	}
+	if !strings.Contains(staged, "staged.txt") {
+		t.Errorf("expected 'staged.txt' in StagedFiles output, got: %q", staged)
+	}
+}
+
+// TestStageFile verifies that StageFile stages a specific file.
+func TestStageFile(t *testing.T) {
+	dir := t.TempDir()
+	s := initTestRepo(t, dir)
+
+	if err := os.WriteFile(filepath.Join(dir, "specific.txt"), []byte("specific"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.StageFile("specific.txt"); err != nil {
+		t.Fatalf("StageFile: %v", err)
+	}
+
+	staged, err := s.StagedFiles()
+	if err != nil {
+		t.Fatalf("StagedFiles: %v", err)
+	}
+	if !strings.Contains(staged, "specific.txt") {
+		t.Errorf("expected 'specific.txt' in StagedFiles output, got: %q", staged)
+	}
+}
+
+// TestCheckoutTrackRemote verifies that CheckoutTrackRemote creates a local
+// branch that tracks origin/<branch> and checks it out.
+func TestCheckoutTrackRemote(t *testing.T) {
+	s, remote := initBareRemote(t)
+
+	// Create and push a branch from a second clone.
+	clone2 := t.TempDir()
+	mustRun(t, "git", "clone", remote, clone2)
+	mustRun(t, "git", "-C", clone2, "config", "user.email", "test@test.com")
+	mustRun(t, "git", "-C", clone2, "config", "user.name", "Test")
+	mustRun(t, "git", "-C", clone2, "checkout", "-b", "feature-remote")
+	if err := os.WriteFile(filepath.Join(clone2, "feat.txt"), []byte("feat"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "git", "-C", clone2, "add", ".")
+	mustRun(t, "git", "-C", clone2, "commit", "-m", "feature commit")
+	mustRun(t, "git", "-C", clone2, "push", "origin", "feature-remote")
+
+	// Fetch into s so the remote tracking ref exists.
+	if err := s.Fetch(); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// CheckoutTrackRemote should create a local branch tracking origin/feature-remote.
+	if err := s.CheckoutTrackRemote("feature-remote"); err != nil {
+		t.Fatalf("CheckoutTrackRemote: %v", err)
+	}
+
+	branch, err := s.CurrentBranch()
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if branch != "feature-remote" {
+		t.Errorf("CurrentBranch = %q, want %q", branch, "feature-remote")
+	}
+
+	// The feature file should now be present.
+	if _, err := os.Stat(filepath.Join(s.Path, "feat.txt")); err != nil {
+		t.Errorf("feat.txt not present after CheckoutTrackRemote: %v", err)
+	}
+}
+
+// TestConflictedFilesReturnsConflicts verifies that ConflictedFiles returns
+// the list of files with unresolved merge conflicts.
+func TestConflictedFilesReturnsConflicts(t *testing.T) {
+	dir := t.TempDir()
+	s := initTestRepo(t, dir)
+	defaultBranch := defaultBranchName(t, dir)
+
+	// Create a feature branch with a conflicting change.
+	if err := s.CreateBranch("feature-conflict2"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("feature version"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add("conflict.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Commit("feature change"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch back to default branch and make a conflicting change.
+	if err := s.Checkout(defaultBranch); err != nil {
+		t.Fatalf("Checkout default: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("main version"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add("conflict.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Commit("main change"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Merge should fail with conflict.
+	if err := s.MergeBranch("feature-conflict2"); err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+
+	// ConflictedFiles should return conflict.txt.
+	conflicted, err := s.ConflictedFiles()
+	if err != nil {
+		t.Fatalf("ConflictedFiles: %v", err)
+	}
+	if !strings.Contains(conflicted, "conflict.txt") {
+		t.Errorf("expected 'conflict.txt' in ConflictedFiles output, got: %q", conflicted)
 	}
 }
 

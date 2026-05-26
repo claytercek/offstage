@@ -28,61 +28,38 @@ func Pull(s *store.Store, projectDir string, projectID string, branchName string
 		return fmt.Errorf("fetch from origin: %w", err)
 	}
 
-	localExists := s.BranchExists(storeBranch)
-
-	// Check if remote tracking branch exists.
-	remoteRef := "refs/remotes/origin/" + storeBranch
-	_, remoteErr := s.ExecOutput("rev-parse", "--verify", remoteRef)
-	remoteExists := remoteErr == nil
-
-	if !localExists && !remoteExists {
-		return ErrBranchNotFound
+	// Step 2: Determine branch sync state and act accordingly.
+	state, err := s.BranchSyncState(storeBranch)
+	if err != nil {
+		return fmt.Errorf("check branch state: %w", err)
 	}
 
-	if !localExists && remoteExists {
-		// Create local branch tracking the remote.
-		if err := s.Exec("checkout", "-b", storeBranch, "origin/"+storeBranch); err != nil {
+	switch state {
+	case store.BranchNotFound:
+		return ErrBranchNotFound
+
+	case store.BranchDiverged:
+		return ErrDiverged
+
+	case store.BranchRemoteOnly:
+		// Create a local branch tracking the remote.
+		if err := s.CheckoutTrackRemote(storeBranch); err != nil {
 			return fmt.Errorf("checkout remote branch: %w", err)
 		}
-	} else if localExists {
-		if remoteExists {
-			// Check for diverged state by comparing local branch ref vs remote tracking ref.
-			localRef := "refs/heads/" + storeBranch
-			remoteAhead, err := s.ExecOutput("log", localRef+".."+remoteRef, "--oneline")
-			if err != nil {
-				return fmt.Errorf("check remote commits: %w", err)
-			}
-			localAhead, err := s.ExecOutput("log", remoteRef+".."+localRef, "--oneline")
-			if err != nil {
-				return fmt.Errorf("check local commits: %w", err)
-			}
 
-			remoteHasNew := strings.TrimSpace(remoteAhead) != ""
-			localHasNew := strings.TrimSpace(localAhead) != ""
+	case store.BranchRemoteAhead:
+		// Remote has new commits — fast-forward checkout + pull.
+		if err := s.Checkout(storeBranch); err != nil {
+			return fmt.Errorf("checkout store branch: %w", err)
+		}
+		if err := s.Pull(); err != nil {
+			return fmt.Errorf("pull store branch: %w", err)
+		}
 
-			if remoteHasNew && localHasNew {
-				return ErrDiverged
-			}
-
-			if remoteHasNew {
-				// Fast-forward: checkout then pull.
-				if err := s.Checkout(storeBranch); err != nil {
-					return fmt.Errorf("checkout store branch: %w", err)
-				}
-				if err := s.Pull(); err != nil {
-					return fmt.Errorf("pull store branch: %w", err)
-				}
-			} else {
-				// Local is ahead of or equal to remote — just checkout.
-				if err := s.Checkout(storeBranch); err != nil {
-					return fmt.Errorf("checkout store branch: %w", err)
-				}
-			}
-		} else {
-			// No remote branch — just checkout local.
-			if err := s.Checkout(storeBranch); err != nil {
-				return fmt.Errorf("checkout store branch: %w", err)
-			}
+	case store.BranchSynced, store.BranchLocalOnly:
+		// Local is at or ahead of remote, or there is no remote — just checkout.
+		if err := s.Checkout(storeBranch); err != nil {
+			return fmt.Errorf("checkout store branch: %w", err)
 		}
 	}
 
@@ -158,4 +135,3 @@ func copyStoreFiles(storeDir, projectDir string) (int, error) {
 	})
 	return count, err
 }
-

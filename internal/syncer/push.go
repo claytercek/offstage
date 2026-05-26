@@ -80,12 +80,12 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 
 	// Stage all changes. Use --force to override any global gitignore rules
 	// that might exclude tracked files (e.g. .agents/ is commonly gitignored).
-	if err := s.Exec("add", "--force", "."); err != nil {
+	if err := s.StageAll(); err != nil {
 		return fmt.Errorf("stage changes: %w", err)
 	}
 
 	// Check if there are any staged changes.
-	staged, err := s.ExecOutput("diff", "--staged", "--name-only")
+	staged, err := s.StagedFiles()
 	if err != nil {
 		return fmt.Errorf("check staged changes: %w", err)
 	}
@@ -208,4 +208,3 @@ func matchGlob(pattern, path string) bool {
 	// path must start with prefix+"/" or equal prefix.
 	return strings.HasPrefix(path, prefix+"/") || path == prefix
 }
-

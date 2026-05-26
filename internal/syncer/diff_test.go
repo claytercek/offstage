@@ -152,7 +152,7 @@ func TestDiffBranches_NoDiff(t *testing.T) {
 	if err := s.Checkout(storeBranch); err != nil {
 		t.Fatalf("checkout %s: %v", storeBranch, err)
 	}
-	if err := s.Exec("checkout", "-b", "test-project/feature"); err != nil {
+	if err := s.CreateBranch("test-project/feature"); err != nil {
 		t.Fatalf("create feature branch: %v", err)
 	}
 	if err := s.Checkout(storeBranch); err != nil {

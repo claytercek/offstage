@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/claytercek/offstage/internal/registry"
 	"github.com/claytercek/offstage/internal/store"
 )
 
@@ -13,7 +12,7 @@ import (
 //
 // Branch names in store: <projectID>/<branchName>
 //
-// On clean merge: pushes to remote, marks sourceBranch as reconciled in registry.
+// On clean merge: pushes to remote.
 // On conflict: leaves the merge in-progress with conflict markers and returns a
 // descriptive error with offstage git commands for resolution. Does NOT push.
 func Merge(s *store.Store, projectID, currentBranch, sourceBranch string) error {
@@ -45,7 +44,7 @@ func Merge(s *store.Store, projectID, currentBranch, sourceBranch string) error 
 	mergeErr := s.MergeBranch(sourceStoreBranch)
 	if mergeErr != nil {
 		// Get conflicting files.
-		conflictOut, _ := s.ExecOutput("diff", "--name-only", "--diff-filter=U")
+		conflictOut, _ := s.ConflictedFiles()
 		conflictFiles := strings.TrimSpace(conflictOut)
 
 		// Leave the merge in-progress so the user can resolve conflicts directly.
@@ -62,64 +61,6 @@ func Merge(s *store.Store, projectID, currentBranch, sourceBranch string) error 
 	// Step 6: Push to remote.
 	if err := s.Push(); err != nil {
 		return fmt.Errorf("push after merge: %w", err)
-	}
-
-	// Step 7: Record reconciliation in manifest on store main branch.
-	if err := recordReconciliation(s, projectID, currentBranch, sourceBranch, targetStoreBranch); err != nil {
-		// Non-fatal: warn but don't fail the merge.
-		fmt.Printf("warning: could not update reconciliation registry: %v\n", err)
-	}
-
-	return nil
-}
-
-// recordReconciliation switches to the main branch in the store, loads the
-// manifest, marks sourceBranch as reconciled, commits, pushes, and restores
-// the working branch.
-func recordReconciliation(s *store.Store, projectID, currentBranch, sourceBranch, restoreBranch string) error {
-	// Switch to (or create) the main branch.
-	if s.BranchExists("main") {
-		if err := s.Checkout("main"); err != nil {
-			return fmt.Errorf("checkout main: %w", err)
-		}
-	} else {
-		if err := s.CreateBranch("main"); err != nil {
-			return fmt.Errorf("create main branch: %w", err)
-		}
-	}
-
-	// Restore the original branch on exit regardless of outcome.
-	defer func() {
-		_ = s.Checkout(restoreBranch)
-	}()
-
-	// Load or create manifest.
-	m, err := registry.Load(s.Path)
-	if err != nil {
-		return fmt.Errorf("load manifest: %w", err)
-	}
-
-	// Ensure both branches are registered, then mark source as reconciled.
-	registry.Register(m, projectID, currentBranch)
-	modified := registry.MarkReconciled(m, projectID, sourceBranch)
-	if !modified {
-		// Already reconciled — nothing to commit.
-		return nil
-	}
-
-	// Save, stage, commit, push.
-	if err := registry.Save(s.Path, m); err != nil {
-		return fmt.Errorf("save manifest: %w", err)
-	}
-	if err := s.Exec("add", "--force", "manifest.toml"); err != nil {
-		return fmt.Errorf("stage manifest: %w", err)
-	}
-	msg := fmt.Sprintf("registry: reconcile %s/%s into %s/%s", projectID, sourceBranch, projectID, currentBranch)
-	if err := s.Commit(msg); err != nil {
-		return fmt.Errorf("commit manifest: %w", err)
-	}
-	if err := s.Push(); err != nil {
-		return fmt.Errorf("push manifest: %w", err)
 	}
 
 	return nil
