@@ -28,7 +28,7 @@ func DiffLocal(s *store.Store, projectDir string, include []string, exclude []st
 	}
 
 	// Collect tracked files from the project directory.
-	files, err := CollectFiles(projectDir, include, exclude)
+	files, err := Collect(projectDir, include, exclude)
 	if err != nil {
 		return fmt.Errorf("collect files: %w", err)
 	}

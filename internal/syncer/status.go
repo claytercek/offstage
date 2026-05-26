@@ -20,8 +20,7 @@ type FileStatus struct {
 // Status compares the local tracked files against the sync store source state
 // and prints a per-file summary. Returns ErrHasDiff if any differences exist.
 func Status(s *store.Store, projectDir string, include []string, exclude []string, storeBranch string) error {
-	var fs FileSet
-	files, err := fs.Collect(projectDir, include, exclude)
+	files, err := Collect(projectDir, include, exclude)
 	if err != nil {
 		return fmt.Errorf("collect files: %w", err)
 	}
