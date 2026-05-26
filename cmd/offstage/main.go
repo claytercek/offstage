@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -226,6 +227,9 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 
 	storeBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
 	if err := syncer.Status(env.Store, env.Resolved.RepoRoot, manifest.EffectiveInclude(env.Manifest), env.Manifest.Exclude, storeBranch); err != nil {
+		if !errors.Is(err, syncer.ErrHasDiff) {
+			fmt.Fprintln(cmd.ErrOrStderr(), err)
+		}
 		os.Exit(syncer.ExitCode(err))
 	}
 	return nil
@@ -414,6 +418,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	if err != nil {
+		if !errors.Is(err, syncer.ErrHasDiff) {
+			fmt.Fprintln(cmd.ErrOrStderr(), err)
+		}
 		os.Exit(syncer.ExitCode(err))
 	}
 	return nil
