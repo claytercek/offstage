@@ -167,7 +167,7 @@ func TestPush_DryRun(t *testing.T) {
 	}
 }
 
-func TestCollectFiles_BasicPatterns(t *testing.T) {
+func TestCollect_BasicPatterns(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "CONTEXT.md", "context")
 	writeFile(t, dir, "AGENTS.md", "agents")
@@ -179,9 +179,9 @@ func TestCollectFiles_BasicPatterns(t *testing.T) {
 	include := []string{"CONTEXT.md", "AGENTS.md", ".agents/**", "docs/adr/**"}
 	exclude := []string{}
 
-	files, err := syncer.CollectFiles(dir, include, exclude)
+	files, err := syncer.Collect(dir, include, exclude)
 	if err != nil {
-		t.Fatalf("CollectFiles: %v", err)
+		t.Fatalf("Collect: %v", err)
 	}
 
 	want := map[string]bool{
@@ -202,7 +202,7 @@ func TestCollectFiles_BasicPatterns(t *testing.T) {
 	}
 }
 
-func TestCollectFiles_Exclude(t *testing.T) {
+func TestCollect_Exclude(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "CONTEXT.md", "context")
 	writeFile(t, dir, ".agents/rules.md", "rules")
@@ -211,9 +211,9 @@ func TestCollectFiles_Exclude(t *testing.T) {
 	include := []string{"CONTEXT.md", ".agents/**"}
 	exclude := []string{".agents/secret.md"}
 
-	files, err := syncer.CollectFiles(dir, include, exclude)
+	files, err := syncer.Collect(dir, include, exclude)
 	if err != nil {
-		t.Fatalf("CollectFiles: %v", err)
+		t.Fatalf("Collect: %v", err)
 	}
 
 	for _, f := range files {

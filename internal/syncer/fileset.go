@@ -15,13 +15,9 @@ type patternMatcher interface {
 	MatchesPath(string) bool
 }
 
-// FileSet provides unified file tracking across push and pull operations.
-// It encapsulates pattern matching, file enumeration, and file copying.
-type FileSet struct{}
-
 // Collect walks dir and returns relative paths of files matching any include
 // pattern and not matching any exclude pattern.
-func (FileSet) Collect(dir string, include []string, exclude []string) ([]string, error) {
+func Collect(dir string, include []string, exclude []string) ([]string, error) {
 	var result []string
 	includeMatcher := compilePatterns(include)
 	excludeMatcher := compilePatterns(exclude)
@@ -57,12 +53,12 @@ func (FileSet) Collect(dir string, include []string, exclude []string) ([]string
 }
 
 // Matches reports whether path matches the given git-ignore-compatible pattern.
-func (FileSet) Matches(pattern, path string) bool {
+func Matches(pattern, path string) bool {
 	return compilePatterns([]string{pattern}).MatchesPath(path)
 }
 
 // Copy copies the file at src to dst, creating dst if it does not exist.
-func (FileSet) Copy(src, dst string) (err error) {
+func Copy(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return err

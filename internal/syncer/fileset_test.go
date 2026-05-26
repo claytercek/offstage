@@ -8,9 +8,7 @@ import (
 	"github.com/claytercek/offstage/internal/syncer"
 )
 
-func TestFileSet_Matches(t *testing.T) {
-	var fs syncer.FileSet
-
+func TestMatches(t *testing.T) {
 	tests := []struct {
 		pattern string
 		path    string
@@ -44,7 +42,7 @@ func TestFileSet_Matches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pattern+"_"+tt.path, func(t *testing.T) {
-			got := fs.Matches(tt.pattern, tt.path)
+			got := syncer.Matches(tt.pattern, tt.path)
 			if got != tt.want {
 				t.Errorf("Matches(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
 			}
@@ -52,9 +50,7 @@ func TestFileSet_Matches(t *testing.T) {
 	}
 }
 
-func TestFileSet_Collect(t *testing.T) {
-	var fs syncer.FileSet
-
+func TestCollect(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "CONTEXT.md", "context")
 	writeFile(t, dir, "AGENTS.md", "agents")
@@ -66,7 +62,7 @@ func TestFileSet_Collect(t *testing.T) {
 
 	t.Run("include patterns from push", func(t *testing.T) {
 		include := []string{"CONTEXT.md", "AGENTS.md", ".agents/**", "docs/adr/**"}
-		files, err := fs.Collect(dir, include, nil)
+		files, err := syncer.Collect(dir, include, nil)
 		if err != nil {
 			t.Fatalf("Collect: %v", err)
 		}
@@ -93,7 +89,7 @@ func TestFileSet_Collect(t *testing.T) {
 		include := []string{"CONTEXT.md", ".agents/**"}
 		exclude := []string{".agents/sub/**"}
 
-		files, err := fs.Collect(dir, include, exclude)
+		files, err := syncer.Collect(dir, include, exclude)
 		if err != nil {
 			t.Fatalf("Collect: %v", err)
 		}
@@ -116,7 +112,7 @@ func TestFileSet_Collect(t *testing.T) {
 	})
 
 	t.Run("empty include matches nothing", func(t *testing.T) {
-		files, err := fs.Collect(dir, []string{}, nil)
+		files, err := syncer.Collect(dir, []string{}, nil)
 		if err != nil {
 			t.Fatalf("Collect: %v", err)
 		}
@@ -132,7 +128,7 @@ func TestFileSet_Collect(t *testing.T) {
 		writeFile(t, patternDir, "docs/guide.md", "guide")
 		writeFile(t, patternDir, "notes.txt", "notes")
 
-		files, err := fs.Collect(patternDir, []string{"*.md"}, nil)
+		files, err := syncer.Collect(patternDir, []string{"*.md"}, nil)
 		if err != nil {
 			t.Fatalf("Collect: %v", err)
 		}
@@ -154,9 +150,7 @@ func TestFileSet_Collect(t *testing.T) {
 	})
 }
 
-func TestFileSet_Copy(t *testing.T) {
-	var fs syncer.FileSet
-
+func TestCopy(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
 
@@ -166,7 +160,7 @@ func TestFileSet_Copy(t *testing.T) {
 	}
 
 	dstFile := filepath.Join(dstDir, "test.md")
-	if err := fs.Copy(srcFile, dstFile); err != nil {
+	if err := syncer.Copy(srcFile, dstFile); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
 

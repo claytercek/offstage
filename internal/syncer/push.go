@@ -34,8 +34,7 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 	}
 
 	// Collect files matching include/exclude patterns.
-	var fs FileSet
-	files, err := fs.Collect(projectDir, include, exclude)
+	files, err := Collect(projectDir, include, exclude)
 	if err != nil {
 		return fmt.Errorf("collect files: %w", err)
 	}
@@ -74,7 +73,7 @@ func Push(s *store.Store, projectDir string, include []string, exclude []string,
 			return fmt.Errorf("create parent dirs for %s: %w", relPath, err)
 		}
 
-		if err := fs.Copy(src, dst); err != nil {
+		if err := Copy(src, dst); err != nil {
 			return fmt.Errorf("copy %s: %w", relPath, err)
 		}
 	}
@@ -149,11 +148,3 @@ func removeStaleStoreFiles(storePath string, tracked map[string]bool) error {
 	})
 }
 
-// CollectFiles walks projectDir and returns relative paths of files matching
-// any include pattern and not matching any exclude pattern.
-//
-// Deprecated: use FileSet.Collect instead.
-func CollectFiles(projectDir string, include []string, exclude []string) ([]string, error) {
-	var fs FileSet
-	return fs.Collect(projectDir, include, exclude)
-}
