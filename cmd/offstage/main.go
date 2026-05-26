@@ -287,11 +287,8 @@ func runMerge(_ *cobra.Command, args []string) error {
 	}
 
 	if err := syncer.Merge(s, res.ProjectID, res.BranchName, sourceBranch); err != nil {
-		if errors.Is(err, syncer.ErrMergeConflict) {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
-		}
-		return err
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
 	}
 
 	fmt.Printf("Merged %s into %s and pushed.\n", sourceBranch, res.BranchName)

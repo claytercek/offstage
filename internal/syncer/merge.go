@@ -1,7 +1,6 @@
 package syncer
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -9,17 +8,14 @@ import (
 	"github.com/claytercek/offstage/internal/store"
 )
 
-// ErrMergeConflict is returned when the merge produces conflicts.
-// The conflicting files are listed in the error message.
-var ErrMergeConflict = errors.New("merge conflict")
-
 // Merge merges the sync store branch for sourceBranch into the current branch's
 // sync store branch for the given project.
 //
 // Branch names in store: <projectID>/<branchName>
 //
 // On clean merge: pushes to remote, marks sourceBranch as reconciled in registry.
-// On conflict: returns ErrMergeConflict with conflicting files listed; does NOT push.
+// On conflict: leaves the merge in-progress with conflict markers and returns a
+// descriptive error with offstage git commands for resolution. Does NOT push.
 func Merge(s *store.Store, projectID, currentBranch, sourceBranch string) error {
 	targetStoreBranch := projectID + "/" + currentBranch
 	sourceStoreBranch := projectID + "/" + sourceBranch
@@ -52,15 +48,15 @@ func Merge(s *store.Store, projectID, currentBranch, sourceBranch string) error 
 		conflictOut, _ := s.ExecOutput("diff", "--name-only", "--diff-filter=U")
 		conflictFiles := strings.TrimSpace(conflictOut)
 
-		// Abort the merge to clean up.
-		_ = s.Exec("merge", "--abort")
+		// Leave the merge in-progress so the user can resolve conflicts directly.
+		// Do NOT abort — the user needs the conflict markers in place.
 
 		var fileList string
 		if conflictFiles != "" {
 			fileList = "\n  " + strings.ReplaceAll(conflictFiles, "\n", "\n  ")
 		}
-		return fmt.Errorf("%w: conflicting files:%s\n\nResolve manually using 'offstage git' commands:\n  offstage git checkout %s\n  offstage git merge %s\n  # resolve conflicts, then:\n  offstage git add <files>\n  offstage git commit\n  offstage git push origin HEAD",
-			ErrMergeConflict, fileList, targetStoreBranch, sourceStoreBranch)
+		return fmt.Errorf("merge conflict: conflicting files:%s\n\nResolve conflicts then complete the merge:\n  offstage git add <files>\n  offstage git commit\n  offstage git push origin HEAD\n\nOr abort the merge with:\n  offstage git merge --abort",
+			fileList)
 	}
 
 	// Step 6: Push to remote.

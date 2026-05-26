@@ -1,7 +1,6 @@
 package syncer_test
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -196,8 +195,10 @@ func TestMerge_TargetBranchNotFound(t *testing.T) {
 	}
 }
 
-// TestMerge_Conflict verifies that Merge returns ErrMergeConflict with conflicting
-// files listed, and leaves the store in a clean state (no lingering merge state).
+// TestMerge_Conflict verifies that Merge returns a non-nil error when there are
+// conflicts, leaves the merge in-progress (MERGE_HEAD exists), and that the
+// error message contains the conflicting file names and 'offstage git' recovery
+// instructions.
 func TestMerge_Conflict(t *testing.T) {
 	s, _ := newStoreWithRemote(t)
 
@@ -240,10 +241,7 @@ func TestMerge_Conflict(t *testing.T) {
 	// Both branches now diverged from the same base with conflicting CONTEXT.md.
 	err := syncer.Merge(s, pid, "main", "feature")
 	if err == nil {
-		t.Fatal("expected ErrMergeConflict, got nil")
-	}
-	if !errors.Is(err, syncer.ErrMergeConflict) {
-		t.Errorf("expected ErrMergeConflict, got: %v", err)
+		t.Fatal("expected error on conflict, got nil")
 	}
 
 	// Conflicting file should be mentioned in the error.
@@ -256,9 +254,9 @@ func TestMerge_Conflict(t *testing.T) {
 		t.Errorf("expected error to mention 'offstage git', got: %v", err)
 	}
 
-	// Store should be in a clean state — no MERGE_HEAD.
+	// Store should have MERGE_HEAD — merge is left in-progress for user to resolve.
 	mergeHeadPath := filepath.Join(s.Path, ".git", "MERGE_HEAD")
-	if _, err := os.Stat(mergeHeadPath); err == nil {
-		t.Error("store still has MERGE_HEAD — merge was not aborted cleanly")
+	if _, statErr := os.Stat(mergeHeadPath); statErr != nil {
+		t.Error("expected MERGE_HEAD to exist — merge should be left in-progress for user resolution")
 	}
 }
