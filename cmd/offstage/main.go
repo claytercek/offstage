@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -198,11 +197,8 @@ func runPull(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := syncer.Pull(env.Store, env.Resolved.RepoRoot, env.Resolved.ProjectID, env.Resolved.BranchName, pullDryRun); err != nil {
-		if errors.Is(err, syncer.ErrBranchNotFound) || errors.Is(err, syncer.ErrDiverged) {
-			fmt.Fprintln(cmd.ErrOrStderr(), err)
-			os.Exit(1)
-		}
-		return err
+		fmt.Fprintln(cmd.ErrOrStderr(), err)
+		os.Exit(syncer.ExitCode(err))
 	}
 	return nil
 }
@@ -229,13 +225,8 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	}
 
 	storeBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
-	err = syncer.Status(env.Store, env.Resolved.RepoRoot, manifest.EffectiveInclude(env.Manifest), env.Manifest.Exclude, storeBranch)
-	if errors.Is(err, syncer.ErrHasDiff) {
-		os.Exit(1)
-	}
-	if err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), err)
-		os.Exit(1)
+	if err := syncer.Status(env.Store, env.Resolved.RepoRoot, manifest.EffectiveInclude(env.Manifest), env.Manifest.Exclude, storeBranch); err != nil {
+		os.Exit(syncer.ExitCode(err))
 	}
 	return nil
 }
@@ -314,7 +305,7 @@ func runMerge(_ *cobra.Command, args []string) error {
 
 	if err := syncer.Merge(env.Store, env.Resolved.ProjectID, env.Resolved.BranchName, sourceBranch); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		os.Exit(syncer.ExitCode(err))
 	}
 
 	fmt.Printf("Merged %s into %s and pushed.\n", sourceBranch, env.Resolved.BranchName)
@@ -422,13 +413,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		err = syncer.DiffLocal(env.Store, env.Resolved.RepoRoot, manifest.EffectiveInclude(env.Manifest), env.Manifest.Exclude, storeBranch)
 	}
 
-	if errors.Is(err, syncer.ErrHasDiff) {
-		// git diff already printed the diff; just set exit code 1 silently.
-		os.Exit(1)
-	}
 	if err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), err)
-		os.Exit(1)
+		os.Exit(syncer.ExitCode(err))
 	}
 	return nil
 }
