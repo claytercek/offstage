@@ -3,8 +3,9 @@
 package resolver
 
 import (
-	"os/exec"
 	"strings"
+
+	"github.com/claytercek/offstage/internal/gitutil"
 )
 
 // Result holds the resolved project identity and branch name.
@@ -46,15 +47,9 @@ func Resolve(dir string) (*Result, error) {
 
 // gitOutput runs a git command in dir and returns trimmed stdout, or an error.
 func gitOutput(dir string, args ...string) (string, error) {
-	gitBin, err := exec.LookPath("git")
-	if err != nil {
-		gitBin = "/usr/bin/git"
-	}
-	cmd := exec.Command(gitBin, args...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	out, err := gitutil.Output(dir, args...)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(out), nil
 }
