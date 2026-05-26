@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/claytercek/offstage/internal/hooks"
+	"github.com/claytercek/offstage/internal/manifest"
+	"github.com/claytercek/offstage/internal/resolver"
+	"github.com/claytercek/offstage/internal/syncenv"
 )
 
 // FakeExecutor records calls and returns configured outcomes for unit testing.
@@ -43,24 +46,14 @@ func (f *FakeExecutor) Push(projectDir string, include, exclude []string, projec
 
 // TestWarnNotBlockPostCheckout verifies ADR-0002: a Pull error produces a
 // warning on stderr but RunWithExecutor still returns nil (warn-not-block).
+// WithSyncEnv bypasses live-path initialization so no real git repository or
+// on-disk config is required.
 func TestWarnNotBlockPostCheckout(t *testing.T) {
-	repoDir := t.TempDir()
-	mustRunGit(t, repoDir, "init", "-b", "main")
-	mustRunGit(t, repoDir, "config", "user.email", "test@example.com")
-	mustRunGit(t, repoDir, "config", "user.name", "Test")
-	mustRunGit(t, repoDir, "remote", "add", "origin", "https://github.com/test/repo.git")
-	touchRunFile(t, repoDir, "README.md")
-	mustRunGit(t, repoDir, "add", ".")
-	mustRunGit(t, repoDir, "commit", "-m", "init")
-	chdir(t, repoDir)
-
-	cfgTmp := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfgTmp)
-
+	env, _ := fakeEnv(t)
 	fake := &FakeExecutor{PullErr: errors.New("simulated pull failure")}
 
 	stderr, runErr := captureStderr(t, func() error {
-		return hooks.RunWithExecutor("post-checkout", []string{"abc", "def", "1"}, fake)
+		return hooks.RunWithExecutor("post-checkout", []string{"abc", "def", "1"}, fake, hooks.WithSyncEnv(env))
 	})
 
 	if runErr != nil {
@@ -75,26 +68,13 @@ func TestWarnNotBlockPostCheckout(t *testing.T) {
 }
 
 // TestWarnNotBlockPrePush verifies ADR-0002: a Push error produces a warning
-// but RunWithExecutor returns nil.
+// but RunWithExecutor returns nil. WithSyncEnv bypasses live-path initialization.
 func TestWarnNotBlockPrePush(t *testing.T) {
-	repoDir := t.TempDir()
-	mustRunGit(t, repoDir, "init", "-b", "main")
-	mustRunGit(t, repoDir, "config", "user.email", "test@example.com")
-	mustRunGit(t, repoDir, "config", "user.name", "Test")
-	mustRunGit(t, repoDir, "remote", "add", "origin", "https://github.com/test/repo.git")
-	touchRunFile(t, repoDir, "README.md")
-	mustRunGit(t, repoDir, "add", ".")
-	mustRunGit(t, repoDir, "commit", "-m", "init")
-	writeRunManifest(t, repoDir, `include = ["README.md"]`)
-	chdir(t, repoDir)
-
-	cfgTmp := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfgTmp)
-
+	env, _ := fakeEnv(t)
 	fake := &FakeExecutor{PushErr: errors.New("simulated push failure")}
 
 	stderr, runErr := captureStderr(t, func() error {
-		return hooks.RunWithExecutor("pre-push", nil, fake)
+		return hooks.RunWithExecutor("pre-push", nil, fake, hooks.WithSyncEnv(env))
 	})
 
 	if runErr != nil {
@@ -110,20 +90,9 @@ func TestWarnNotBlockPrePush(t *testing.T) {
 
 // TestTimeoutPostCheckout verifies that a slow Pull is interrupted by the
 // configured hook timeout and produces a timeout warning.
+// WithSyncEnv bypasses live-path initialization so no real git repository is required.
 func TestTimeoutPostCheckout(t *testing.T) {
-	repoDir := t.TempDir()
-	mustRunGit(t, repoDir, "init", "-b", "main")
-	mustRunGit(t, repoDir, "config", "user.email", "test@example.com")
-	mustRunGit(t, repoDir, "config", "user.name", "Test")
-	mustRunGit(t, repoDir, "remote", "add", "origin", "https://github.com/test/repo.git")
-	touchRunFile(t, repoDir, "README.md")
-	mustRunGit(t, repoDir, "add", ".")
-	mustRunGit(t, repoDir, "commit", "-m", "init")
-	chdir(t, repoDir)
-
-	cfgTmp := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfgTmp)
-
+	env, _ := fakeEnv(t)
 	// PullDelay exceeds timeout so the hook should time out.
 	fake := &FakeExecutor{PullDelay: 2 * time.Second}
 
@@ -132,6 +101,7 @@ func TestTimeoutPostCheckout(t *testing.T) {
 			"post-checkout",
 			[]string{"abc", "def", "1"},
 			fake,
+			hooks.WithSyncEnv(env),
 			hooks.WithTimeout(100*time.Millisecond),
 		)
 	})
@@ -146,21 +116,9 @@ func TestTimeoutPostCheckout(t *testing.T) {
 
 // TestTimeoutPrePush verifies that a slow Push is interrupted by the
 // configured hook timeout and produces a timeout warning.
+// WithSyncEnv bypasses live-path initialization so no real git repository is required.
 func TestTimeoutPrePush(t *testing.T) {
-	repoDir := t.TempDir()
-	mustRunGit(t, repoDir, "init", "-b", "main")
-	mustRunGit(t, repoDir, "config", "user.email", "test@example.com")
-	mustRunGit(t, repoDir, "config", "user.name", "Test")
-	mustRunGit(t, repoDir, "remote", "add", "origin", "https://github.com/test/repo.git")
-	touchRunFile(t, repoDir, "README.md")
-	mustRunGit(t, repoDir, "add", ".")
-	mustRunGit(t, repoDir, "commit", "-m", "init")
-	writeRunManifest(t, repoDir, `include = ["README.md"]`)
-	chdir(t, repoDir)
-
-	cfgTmp := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfgTmp)
-
+	env, _ := fakeEnv(t)
 	fake := &FakeExecutor{PushDelay: 2 * time.Second}
 
 	stderr, runErr := captureStderr(t, func() error {
@@ -168,6 +126,7 @@ func TestTimeoutPrePush(t *testing.T) {
 			"pre-push",
 			nil,
 			fake,
+			hooks.WithSyncEnv(env),
 			hooks.WithTimeout(100*time.Millisecond),
 		)
 	})
@@ -219,3 +178,24 @@ func TestSilentNoOpFileCheckout(t *testing.T) {
 		t.Errorf("expected no stderr output for file checkout, got: %q", stderr)
 	}
 }
+
+// fakeEnv builds a minimal *syncenv.SyncEnv that satisfies hook env access
+// without requiring a real git repository or config on disk. The project dir is
+// a temp directory that acts as the repository root.
+func fakeEnv(t *testing.T) (*syncenv.SyncEnv, string) {
+	t.Helper()
+	dir := t.TempDir()
+	env := &syncenv.SyncEnv{
+		Resolved: &resolver.Result{
+			RepoRoot:   dir,
+			ProjectID:  "github.com/test/project",
+			BranchName: "main",
+		},
+		Manifest: &manifest.ProjectConfig{
+			Include: []string{"CONTEXT.md"},
+			Exclude: []string{},
+		},
+	}
+	return env, dir
+}
+

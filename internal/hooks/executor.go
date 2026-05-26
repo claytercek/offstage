@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/claytercek/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/syncenv"
 	"github.com/claytercek/offstage/internal/syncer"
 )
 
@@ -32,7 +33,8 @@ func (e *LiveExecutor) Push(projectDir string, include, exclude []string, projec
 
 // runOptions carries optional overrides for RunWithExecutor.
 type runOptions struct {
-	timeout time.Duration // 0 means use config value
+	timeout time.Duration    // 0 means use config value
+	env     *syncenv.SyncEnv // non-nil overrides live-path initialization
 }
 
 // RunOption is a functional option for RunWithExecutor.
@@ -42,4 +44,12 @@ type RunOption func(*runOptions)
 // Primarily used in tests to avoid waiting for the real config timeout.
 func WithTimeout(d time.Duration) RunOption {
 	return func(o *runOptions) { o.timeout = d }
+}
+
+// WithSyncEnv injects a pre-built SyncEnv, bypassing live-path initialization
+// (config load, resolver, store open). This allows unit tests to verify hook
+// behavior — graceful degradation, timeouts — without a real git repository or
+// on-disk config.
+func WithSyncEnv(env *syncenv.SyncEnv) RunOption {
+	return func(o *runOptions) { o.env = env }
 }

@@ -13,8 +13,7 @@ import (
 	"github.com/claytercek/offstage/internal/config"
 	"github.com/claytercek/offstage/internal/gitexclude"
 	"github.com/claytercek/offstage/internal/manifest"
-	"github.com/claytercek/offstage/internal/resolver"
-	"github.com/claytercek/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/syncenv"
 	"github.com/claytercek/offstage/internal/syncer"
 )
 
@@ -97,6 +96,69 @@ func RunWithExecutor(hookName string, args []string, ex HookExecutor, opts ...Ru
 	}
 }
 
+// openEnv returns the SyncEnv to use for the hook. If an env was injected via
+// WithSyncEnv it is returned directly. Otherwise the live path is taken:
+// syncenv.Open is called and the configured timeout is applied to opts.
+//
+// The hookName parameter is used only for warning messages on the live path.
+// Returns (nil, nil) when the hook should silently no-op (offstage not
+// initialized). Returns (nil, error) for unexpected initialization failures
+// that should produce a warning.
+func openEnv(cwd, hookName string, opts []RunOption, needManifest bool) (*syncenv.SyncEnv, []RunOption, error) {
+	o := &runOptions{}
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	// If a pre-built env was injected (e.g. by tests), use it directly.
+	if o.env != nil {
+		return o.env, opts, nil
+	}
+
+	// Live path: use syncenv.Open which encapsulates config + resolver + store.
+	var openOpts []syncenv.Option
+	if needManifest {
+		openOpts = append(openOpts, syncenv.WithManifest())
+	}
+
+	env, err := syncenv.Open(cwd, openOpts...)
+	if err != nil {
+		if errors.Is(err, config.ErrNotInitialized) {
+			return nil, opts, nil // silent no-op
+		}
+		return nil, opts, fmt.Errorf("offstage hooks %s: %w", hookName, err)
+	}
+
+	// Pick up the configured timeout from config when not explicitly set.
+	if !hasTimeoutOpt(opts) {
+		opts = append(opts, WithTimeout(time.Duration(env.Config.Hooks.Timeout())*time.Second))
+	}
+
+	return env, opts, nil
+}
+
+// runWithTimeout runs op in a goroutine, returning nil if it succeeds or prints
+// a warning and returns nil if it times out or returns a non-fatal error.
+// This is the single shared implementation of the timeout-and-degrade pattern.
+func runWithTimeout(hookName string, timeout time.Duration, op func() error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- op()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks %s: %v\n", hookName, err)
+		}
+	case <-ctx.Done():
+		fmt.Fprintf(os.Stderr, "warning: offstage hooks %s: timed out after %v\n", hookName, timeout)
+	}
+}
+
 // runPostCheckout implements the post-checkout hook. Git calls it with:
 // <prev-HEAD> <new-HEAD> <flag> where flag is 1 for branch switch, 0 for file checkout.
 func runPostCheckout(args []string, ex HookExecutor, opts []RunOption) error {
@@ -109,67 +171,36 @@ func runPostCheckout(args []string, ex HookExecutor, opts []RunOption) error {
 		return nil
 	}
 
-	// When no executor is injected, use the real syncer wired up from config.
-	// Config load drives the silent-no-op / warn / store-open decisions.
+	env, opts, err := openEnv(cwd, "post-checkout", opts, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		return nil
+	}
+	if env == nil {
+		return nil // silent no-op (not initialized)
+	}
+
+	if strings.HasPrefix(env.Resolved.BranchName, "detached/") {
+		return nil
+	}
+
+	// Wire live executor from env if none was injected.
 	if ex == nil {
-		cfg, err := config.Load()
-		if errors.Is(err, config.ErrNotInitialized) {
-			return nil // silent no-op: offstage not configured here
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
-			return nil
-		}
-		s, err := store.Open(cfg.StorePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
-			return nil
-		}
-		ex = &LiveExecutor{Store: s}
-		// When wiring from config, also pick up the configured timeout unless
-		// an explicit WithTimeout option was supplied.
-		if !hasTimeoutOpt(opts) {
-			opts = append(opts, WithTimeout(time.Duration(cfg.Hooks.Timeout())*time.Second))
-		}
+		ex = &LiveExecutor{Store: env.Store}
 	}
 
-	branch, err := resolver.ResolveBranchContext(cwd)
-	if err != nil {
-		return nil
-	}
-	if strings.HasPrefix(branch, "detached/") {
-		return nil
-	}
-
-	projectID, err := resolver.ResolveProjectID(cwd)
-	if err != nil {
-		return nil
-	}
-	repoRoot, err := resolver.RepositoryRoot(cwd)
-	if err != nil {
-		return nil
-	}
-
+	repoRoot := env.Resolved.RepoRoot
+	projectID := env.Resolved.ProjectID
+	branch := env.Resolved.BranchName
 	timeout := effectiveTimeout(opts)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
-	done := make(chan error, 1)
-	go func() {
-		done <- ex.Pull(repoRoot, projectID, branch)
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			if errors.Is(err, syncer.ErrBranchNotFound) {
-				return nil // new branch, no store branch yet
-			}
-			fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
+	runWithTimeout("post-checkout", timeout, func() error {
+		err := ex.Pull(repoRoot, projectID, branch)
+		if errors.Is(err, syncer.ErrBranchNotFound) {
+			return nil // new branch, no store branch yet
 		}
-	case <-ctx.Done():
-		fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: timed out after %v\n", timeout)
-	}
+		return err
+	})
 
 	return nil
 }
@@ -182,46 +213,31 @@ func runPrePush(ex HookExecutor, opts []RunOption) error {
 		return nil
 	}
 
-	// When no executor is injected, use the real syncer wired up from config.
+	env, opts, err := openEnv(cwd, "pre-push", opts, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		return nil
+	}
+	if env == nil {
+		return nil // silent no-op (not initialized)
+	}
+
+	// Wire live executor from env if none was injected.
 	if ex == nil {
-		cfg, err := config.Load()
-		if errors.Is(err, config.ErrNotInitialized) {
-			return nil // silent no-op: offstage not configured here
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
-			return nil
-		}
-		s, err := store.Open(cfg.StorePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
-			return nil
-		}
-		ex = &LiveExecutor{Store: s}
-		if !hasTimeoutOpt(opts) {
-			opts = append(opts, WithTimeout(time.Duration(cfg.Hooks.Timeout())*time.Second))
-		}
+		ex = &LiveExecutor{Store: env.Store}
 	}
 
-	repoRoot, err := resolver.RepositoryRoot(cwd)
-	if err != nil {
-		return nil
+	mf := env.Manifest
+	if mf == nil {
+		// Manifest not loaded (WithManifest not requested — shouldn't happen here,
+		// but guard defensively).
+		mf = &manifest.ProjectConfig{}
 	}
 
-	mf, err := manifest.Load(repoRoot)
-	if err != nil {
-		return nil
-	}
-
-	branch, err := resolver.ResolveBranchContext(cwd)
-	if err != nil {
-		return nil
-	}
-
-	projectID, err := resolver.ResolveProjectID(cwd)
-	if err != nil {
-		return nil
-	}
+	repoRoot := env.Resolved.RepoRoot
+	projectID := env.Resolved.ProjectID
+	branch := env.Resolved.BranchName
+	timeout := effectiveTimeout(opts)
 
 	if mf.GitExclude.AutoSync {
 		if _, err := gitexclude.Sync(repoRoot, mf.Include); err != nil {
@@ -229,23 +245,9 @@ func runPrePush(ex HookExecutor, opts []RunOption) error {
 		}
 	}
 
-	timeout := effectiveTimeout(opts)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- ex.Push(repoRoot, mf.Include, mf.Exclude, projectID, branch)
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
-		}
-	case <-ctx.Done():
-		fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: timed out after %v\n", timeout)
-	}
+	runWithTimeout("pre-push", timeout, func() error {
+		return ex.Push(repoRoot, mf.Include, mf.Exclude, projectID, branch)
+	})
 
 	return nil
 }
