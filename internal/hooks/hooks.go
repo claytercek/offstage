@@ -2,11 +2,20 @@
 package hooks
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/gastownhall/offstage/internal/config"
+	"github.com/gastownhall/offstage/internal/manifest"
+	"github.com/gastownhall/offstage/internal/resolver"
+	"github.com/gastownhall/offstage/internal/store"
+	"github.com/gastownhall/offstage/internal/syncer"
 )
 
 // hooksDir returns the global hooks directory path.
@@ -134,9 +143,129 @@ func UninstallLocal(repoGitDir string) error {
 }
 
 
-// Run is the entry point called by hook shell scripts.
-// This is a stub that always exits 0; real logic is added in later slices.
+// Run is the entry point called by hook shell scripts. It never returns a
+// non-nil error — any failure is printed as a warning and the hook exits 0.
 func Run(hookName string, args []string) error {
+	switch hookName {
+	case "post-checkout":
+		return runPostCheckout(args)
+	case "pre-push":
+		return runPrePush()
+	default:
+		return nil
+	}
+}
+
+// runPostCheckout implements the post-checkout hook. Git calls it with:
+// <prev-HEAD> <new-HEAD> <flag> where flag is 1 for branch switch, 0 for file checkout.
+func runPostCheckout(args []string) error {
+	if len(args) >= 3 && args[2] == "0" {
+		return nil // file checkout, not a branch switch
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+
+	cfg, err := config.Load()
+	if errors.Is(err, config.ErrNotInitialized) {
+		return nil
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
+		return nil
+	}
+
+	res, err := resolver.Resolve(cwd)
+	if err != nil {
+		return nil
+	}
+	if strings.HasPrefix(res.BranchName, "detached/") {
+		return nil
+	}
+
+	s, err := store.Open(cfg.StorePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
+		return nil
+	}
+
+	timeout := time.Duration(cfg.Hooks.Timeout()) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- syncer.Pull(s, cwd, res.ProjectID, res.BranchName, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			if errors.Is(err, syncer.ErrBranchNotFound) {
+				return nil // new branch, no store branch yet
+			}
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: %v\n", err)
+		}
+	case <-ctx.Done():
+		fmt.Fprintf(os.Stderr, "warning: offstage hooks post-checkout: timed out after %v\n", timeout)
+	}
+
+	return nil
+}
+
+// runPrePush implements the pre-push hook. Any error is printed as a warning;
+// the push always proceeds (always exits 0).
+func runPrePush() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+
+	cfg, err := config.Load()
+	if errors.Is(err, config.ErrNotInitialized) {
+		return nil
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
+		return nil
+	}
+
+	mf, err := manifest.Load(cwd)
+	if err != nil {
+		return nil // no manifest, nothing to push
+	}
+
+	res, err := resolver.Resolve(cwd)
+	if err != nil {
+		return nil
+	}
+
+	s, err := store.Open(cfg.StorePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
+		return nil
+	}
+
+	timeout := time.Duration(cfg.Hooks.Timeout()) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- syncer.Push(s, cwd, mf.Include, mf.Exclude, res.ProjectID, res.BranchName, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: %v\n", err)
+		}
+	case <-ctx.Done():
+		fmt.Fprintf(os.Stderr, "warning: offstage hooks pre-push: timed out after %v\n", timeout)
+	}
+
 	return nil
 }
 

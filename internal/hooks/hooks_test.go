@@ -146,11 +146,6 @@ func TestUninstallNothing(t *testing.T) {
 	}
 }
 
-func TestRunStub(t *testing.T) {
-	if err := Run("post-checkout", []string{"abc", "def", "1"}); err != nil {
-		t.Errorf("Run: unexpected error: %v", err)
-	}
-}
 
 // --- Local install/uninstall tests ---
 
