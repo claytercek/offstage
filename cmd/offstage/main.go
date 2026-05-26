@@ -11,8 +11,8 @@ import (
 	"github.com/claytercek/offstage/internal/config"
 	"github.com/claytercek/offstage/internal/hooks"
 	"github.com/claytercek/offstage/internal/manifest"
-	"github.com/claytercek/offstage/internal/resolver"
 	"github.com/claytercek/offstage/internal/store"
+	"github.com/claytercek/offstage/internal/syncenv"
 	"github.com/claytercek/offstage/internal/syncer"
 	"github.com/spf13/cobra"
 )
@@ -133,32 +133,17 @@ func runPush(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("get dry-run flag: %w", err)
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	mf, err := manifest.Load(cwd)
-	if err != nil {
-		return fmt.Errorf("load manifest: %w", err)
-	}
-
-	res, err := resolver.Resolve(cwd)
-	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
-	}
-
-	s, err := store.Open(cfg.StorePath)
+	env, err := syncenv.Open(cwd)
 	if err != nil {
 		return err
 	}
 
-	if err := syncer.Push(s, cwd, mf.Include, mf.Exclude, res.ProjectID, res.BranchName, dryRun); err != nil {
+	if err := syncer.Push(env.Store, cwd, env.Manifest.Include, env.Manifest.Exclude, env.Resolved.ProjectID, env.Resolved.BranchName, dryRun); err != nil {
 		return err
 	}
 	return nil
@@ -178,27 +163,17 @@ func init() {
 }
 
 func runPull(cmd *cobra.Command, _ []string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	res, err := resolver.Resolve(cwd)
-	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
-	}
-
-	s, err := store.Open(cfg.StorePath)
+	env, err := syncenv.OpenWithoutManifest(cwd)
 	if err != nil {
 		return err
 	}
 
-	if err := syncer.Pull(s, cwd, res.ProjectID, res.BranchName, pullDryRun); err != nil {
+	if err := syncer.Pull(env.Store, cwd, env.Resolved.ProjectID, env.Resolved.BranchName, pullDryRun); err != nil {
 		if errors.Is(err, syncer.ErrBranchNotFound) || errors.Is(err, syncer.ErrDiverged) {
 			fmt.Fprintln(cmd.ErrOrStderr(), err)
 			os.Exit(1)
@@ -252,32 +227,22 @@ See ADR-0001 for rationale. (offstage-qim)`,
 func runMerge(_ *cobra.Command, args []string) error {
 	sourceBranch := args[0]
 
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	res, err := resolver.Resolve(cwd)
-	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
-	}
-
-	s, err := store.Open(cfg.StorePath)
+	env, err := syncenv.OpenWithoutManifest(cwd)
 	if err != nil {
 		return err
 	}
 
-	if err := syncer.Merge(s, res.ProjectID, res.BranchName, sourceBranch); err != nil {
+	if err := syncer.Merge(env.Store, env.Resolved.ProjectID, env.Resolved.BranchName, sourceBranch); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 
-	fmt.Printf("Merged %s into %s and pushed.\n", sourceBranch, res.BranchName)
+	fmt.Printf("Merged %s into %s and pushed.\n", sourceBranch, env.Resolved.BranchName)
 	return nil
 }
 
@@ -364,37 +329,23 @@ Exit code is 0 if no differences, 1 if differences exist (POSIX diff convention)
 }
 
 func runDiff(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	res, err := resolver.Resolve(cwd)
-	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
-	}
-
-	s, err := store.Open(cfg.StorePath)
+	env, err := syncenv.Open(cwd)
 	if err != nil {
 		return err
 	}
 
 	if len(args) == 1 {
-		currentStoreBranch := res.ProjectID + "/" + res.BranchName
-		targetStoreBranch := res.ProjectID + "/" + args[0]
-		err = syncer.DiffBranches(s, currentStoreBranch, targetStoreBranch)
+		currentStoreBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
+		targetStoreBranch := env.Resolved.ProjectID + "/" + args[0]
+		err = syncer.DiffBranches(env.Store, currentStoreBranch, targetStoreBranch)
 	} else {
-		mf, loadErr := manifest.Load(cwd)
-		if loadErr != nil {
-			return fmt.Errorf("load manifest: %w", loadErr)
-		}
-		storeBranch := res.ProjectID + "/" + res.BranchName
-		err = syncer.DiffLocal(s, cwd, mf.Include, mf.Exclude, storeBranch)
+		storeBranch := env.Resolved.ProjectID + "/" + env.Resolved.BranchName
+		err = syncer.DiffLocal(env.Store, cwd, env.Manifest.Include, env.Manifest.Exclude, storeBranch)
 	}
 
 	if errors.Is(err, syncer.ErrHasDiff) {
