@@ -11,12 +11,29 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// HooksConfig holds configuration for the offstage git hooks.
+type HooksConfig struct {
+	// TimeoutSeconds is the timeout for hook execution. Defaults to 5 if unset.
+	TimeoutSeconds int `toml:"timeout_seconds"`
+}
+
+// Timeout returns the effective timeout in seconds, applying the default of 5
+// when TimeoutSeconds is not set (zero value).
+func (h HooksConfig) Timeout() int {
+	if h.TimeoutSeconds <= 0 {
+		return 5
+	}
+	return h.TimeoutSeconds
+}
+
 // Config holds the offstage configuration.
 type Config struct {
 	// StoreURL is the git URL of the sync store repository.
 	StoreURL string `toml:"store_url"`
 	// StorePath is the local path where the sync store is cloned.
 	StorePath string `toml:"store_path"`
+	// Hooks holds configuration for the offstage git hooks.
+	Hooks HooksConfig `toml:"hooks"`
 }
 
 // Dir returns the configuration directory (~/.config/offstage).

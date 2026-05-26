@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gastownhall/offstage/internal/config"
+	"github.com/gastownhall/offstage/internal/hooks"
 	"github.com/gastownhall/offstage/internal/manifest"
 	"github.com/gastownhall/offstage/internal/registry"
 	"github.com/gastownhall/offstage/internal/resolver"
@@ -48,6 +49,10 @@ func init() {
 	rootCmd.AddCommand(gitCmd)
 	rootCmd.AddCommand(mergeCmd)
 	rootCmd.AddCommand(diffCmd)
+	rootCmd.AddCommand(hooksCmd)
+	hooksCmd.AddCommand(hooksInstallCmd)
+	hooksCmd.AddCommand(hooksUninstallCmd)
+	hooksCmd.AddCommand(hooksRunCmd)
 
 	// push flags
 	pushCmd.Flags().Bool("dry-run", false, "Print files that would be pushed without modifying the store")
@@ -285,6 +290,44 @@ func runMerge(_ *cobra.Command, args []string) error {
 
 	fmt.Printf("Merged %s into %s and pushed.\n", sourceBranch, res.BranchName)
 	return nil
+}
+
+var hooksCmd = &cobra.Command{
+	Use:   "hooks",
+	Short: "Manage git hooks for automated offstage sync",
+}
+
+var hooksInstallCmd = &cobra.Command{
+	Use:   "install",
+	Short: "Install offstage git hooks",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfgDir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		return hooks.Install(cfgDir)
+	},
+}
+
+var hooksUninstallCmd = &cobra.Command{
+	Use:   "uninstall",
+	Short: "Uninstall offstage git hooks",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfgDir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		return hooks.Uninstall(cfgDir)
+	},
+}
+
+var hooksRunCmd = &cobra.Command{
+	Use:   "run <hook-name> [args...]",
+	Short: "Run an offstage hook (called by git hook scripts)",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return hooks.Run(args[0], args[1:])
+	},
 }
 
 func notImplemented(cmd *cobra.Command, _ []string) error {
