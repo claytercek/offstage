@@ -111,5 +111,5 @@ offstage merge my-feature-branch
 ## Installation
 
 ```sh
-go install github.com/gastownhall/offstage/cmd/offstage@latest
+go install github.com/claytercek/offstage/cmd/offstage@latest
 ```
