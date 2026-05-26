@@ -10,6 +10,7 @@ CONTEXT.md
 # Build outputs
 bin/
 dist/
+man/
 offstage
 
 # Test artifacts

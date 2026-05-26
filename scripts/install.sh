@@ -65,3 +65,23 @@ if [ "$OS" = "Darwin" ]; then
 fi
 
 echo "$BINARY $VERSION installed to $INSTALL_DIR/$BINARY"
+
+MAN_DIR="${MAN_DIR:-/usr/local/share/man/man1}"
+if ls "$TMP/man/"*.1 &>/dev/null 2>&1; then
+  if [ ! -w "$(dirname "$MAN_DIR")" ] && [ ! -w "$MAN_DIR" ]; then
+    echo "Installing man pages to $MAN_DIR (requires sudo)..."
+    sudo mkdir -p "$MAN_DIR"
+    sudo install -m 644 "$TMP/man/"*.1 "$MAN_DIR/"
+  else
+    mkdir -p "$MAN_DIR"
+    install -m 644 "$TMP/man/"*.1 "$MAN_DIR/"
+  fi
+  echo "man pages installed to $MAN_DIR"
+fi
+
+echo ""
+echo "Shell completion setup:"
+echo "  bash:  $BINARY completion bash > /etc/bash_completion.d/$BINARY  # system-wide"
+echo "  bash:  $BINARY completion bash > ~/.bash_completion               # user"
+echo "  zsh:   $BINARY completion zsh > \"\${fpath[1]}/_$BINARY\""
+echo "  fish:  $BINARY completion fish > ~/.config/fish/completions/$BINARY.fish"

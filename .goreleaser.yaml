@@ -5,6 +5,7 @@ project_name: offstage
 before:
   hooks:
     - go mod tidy
+    - go run ./tools/gen-docs man
 
 builds:
   - binary: offstage
@@ -29,6 +30,9 @@ archives:
       - goos: windows
         formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ .Arch }}"
+    files:
+      - src: man/*.1
+        dst: man/
 
 universal_binaries:
   - replace: true
